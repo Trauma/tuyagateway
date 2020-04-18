@@ -1,7 +1,7 @@
 import time
 import paho.mqtt.client as mqtt
 import json
-import tuya
+import tuyaface
 from os import path
 from threading import Thread
 import database as database
@@ -159,7 +159,7 @@ class TuyaMQTTEntity(Thread):
     def status(self, via:str = 'tuya', force_mqtt:bool = False):
             
         try:
-            data = tuya.status(self.entity)
+            data = tuyaface.status(self.entity)
 
             if not data:
                 self._set_availability(False)
@@ -177,7 +177,7 @@ class TuyaMQTTEntity(Thread):
         # print('set_status')
         try:  
             timer = time.time()
-            data = tuya.set_status(self.entity, dps_item, payload)            
+            data = tuyaface.set_status(self.entity, dps_item, payload)            
             # print(self.mqtt_topic,data, time.time()-timer)
             if data == None:
                 self.status('mqtt', True)
