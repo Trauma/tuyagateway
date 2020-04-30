@@ -95,17 +95,20 @@ class TuyaMQTTEntity(Thread):
             self._set_dps(dps_key, None)
         if dps_key not in self.entity['attributes']['via']:
             self._set_via(dps_key, 'mqtt')
-        self.set_status(dps_key, payload_bool(message.payload))
+        self.set_state(dps_key, payload_bool(message.payload))
+
 
     def _set_dps(self, dps_key, dps_value:str):
 
         self.entity['attributes']['dps'][dps_key] = dps_value
         self.parent.set_entity_dps_item(self.key, dps_key, dps_value) 
 
+
     def _set_via(self, dps_key, via:str):
 
         self.entity['attributes']['via'][dps_key] = via
         self.parent.set_entity_via_item(self.key, dps_key, via) 
+
 
     def _set_availability(self, availability):
 
@@ -173,11 +176,11 @@ class TuyaMQTTEntity(Thread):
             self._set_availability(False)
 
 
-    def set_status(self, dps_item, payload):
-        # print('set_status')
+    def set_state(self, dps_item, payload):
+        # print('set_state')
         try:  
-            timer = time.time()
-            data = tuyaface.set_status(self.entity, dps_item, payload)            
+            #timer = time.time()
+            data = tuyaface.set_state(self.entity, dps_item, payload)
             # print(self.mqtt_topic,data, time.time()-timer)
             if data == None:
                 self.status('mqtt', True)
@@ -186,7 +189,7 @@ class TuyaMQTTEntity(Thread):
             self._process_data(data, 'mqtt', True)
 
         except Exception as ex:
-            print(ex, 'set_status for', self.mqtt_topic)
+            print(ex, 'set_state for', self.mqtt_topic)
 
     def hass_discovery(self):
 
@@ -275,9 +278,7 @@ class TuyaMQTT:
             self.debuglevel = 3
 
         self.database = database
-        self.database.setup()  
-        #debug 3.1
-        # self.add_entity_dict('tuya/3.1/06200290b4e62d195a42/a52e118707bf530a/192.168.1.143', True)      
+        self.database.setup()            
 
 
     def mqtt_connect(self): 

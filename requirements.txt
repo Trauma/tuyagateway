@@ -1,3 +1,2 @@
-paho_mqtt==1.4.0
-bitstring==3.1.6
-tuyaface==1.0.5
+paho_mqtt==1.5.0
+tuyaface==1.1.0
