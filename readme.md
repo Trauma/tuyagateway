@@ -15,12 +15,11 @@ Todo
   - simple interface?
 - implement https://www.home-assistant.io/docs/mqtt/discovery/
 - implement logger and remove custom debugger
-
-- check requirements.txt 
 - clean exit issue #3
 
 Changelog
 ==================
+- check requirements.txt 
 - tuyaface to v1.1.0
 - replaced entities.json with sqlite db
 - only publish onchange

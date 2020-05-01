@@ -6,6 +6,10 @@ from os import path
 from threading import Thread
 import database as database
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 def connack_string(state):
 
     states = [
@@ -76,7 +80,7 @@ class TuyaMQTTEntity(Thread):
             self.mqtt_client.loop_start()   
             self.mqtt_client.on_message = self.on_message
         except Exception as ex:
-            print('Failed to connect to MQTT Broker', ex)
+            logger.warning('Failed to connect to MQTT Broker %s' % ex)
             self.mqtt_connected = False
 
 
@@ -180,7 +184,7 @@ class TuyaMQTTEntity(Thread):
         # print('set_state')
         try:  
             #timer = time.time()
-            data = tuyaface.set_state(self.entity, dps_item, payload)
+            data = tuyaface.set_state(self.entity, payload, dps_item)
             # print(self.mqtt_topic,data, time.time()-timer)
             if data == None:
                 self.status('mqtt', True)
