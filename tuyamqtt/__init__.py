@@ -1,8 +1,8 @@
 import time
 import paho.mqtt.client as mqtt
 import json
-#import tuyaface
-import tuya.tuyaface as tuyaface
+import tuyaface
+#import tuya.tuyaface as tuyaface
 from os import path
 from threading import Thread
 import database as database
