@@ -2,13 +2,16 @@ import time
 import paho.mqtt.client as mqtt
 import json
 import tuyaface
+#import tuya.tuyaface as tuyaface
 from os import path
 from threading import Thread
 import database as database
 
 import logging
 
+#logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+
 
 def connack_string(state):
 
@@ -55,15 +58,14 @@ class TuyaMQTTEntity(Thread):
  
         Thread.__init__(self)
         self.key = key
-        # self.mqtt_topic = key
+      
         self.entity = entity
         self.mqtt_topic = entity['topic']
-        # if entity['topic'] == '':
+
         self.mqtt_topic = "tuya/%s/%s/%s/%s"%(entity['protocol'],entity['deviceid'],entity['localkey'],entity['ip'])
 
         self.parent = parent
         self.config = self.parent.config   
-        self.debuglevel =  self.parent.debuglevel
         self.mqtt_connected = False
         self.availability = False
         self.availability_changed = False
@@ -89,8 +91,7 @@ class TuyaMQTTEntity(Thread):
         if message.topic[-7:] != 'command':
             return   
 
-        if self.debuglevel >= 1:
-            print("topic",message.topic,"retained",message.retain,"message received",str(message.payload.decode("utf-8")))
+        logging.debug("topic %s retained %s message received %s" % (message.topic,message.retain,str(message.payload.decode("utf-8"))))
 
         entityParts = message.topic.split("/")  
         dps_key = str(entityParts[5]) #will give problem with custom topics
@@ -128,15 +129,15 @@ class TuyaMQTTEntity(Thread):
             
             if dps_key not in self.entity['attributes']['dps']:
                 self._set_dps(dps_key, None)
-            if self.debuglevel >= 3:
-                print("_process_data ", dps_key, dps_value)
+            logger.debug("_process_data %s : %s" % (dps_key, dps_value))
+
             if dps_key not in self.entity['attributes']['via']:
                 self._set_via(dps_key, 'init')
             if dps_value != self.entity['attributes']['dps'][dps_key] or force_mqtt:
                 changed = True
                 self._set_dps(dps_key, dps_value) 
-                if self.debuglevel >= 3:
-                    print("->publish %s/%s/state" % (self.mqtt_topic, dps_key))                
+
+                logger.debug("->publish %s/%s/state" % (self.mqtt_topic, dps_key))                
                 self.mqtt_client.publish("%s/%s/state" % (self.mqtt_topic, dps_key),  bool_payload(self.config, dps_value))  
                 
                 if via != self.entity['attributes']['via'][dps_key]:                        
@@ -147,10 +148,9 @@ class TuyaMQTTEntity(Thread):
                     'via': self.entity['attributes']['via'][dps_key],
                     'time': time.time()
                 }
-                if self.debuglevel >= 3:
-                    print("->publish %s/%s/attributes" % (self.mqtt_topic, dps_key)) 
+
+                logger.debug("->publish %s/%s/attributes" % (self.mqtt_topic, dps_key)) 
                 self.mqtt_client.publish("%s/%s/attributes" % (self.mqtt_topic, dps_key),  json.dumps(attr_item))
-                # print("%s/%s/attributes" % (self.mqtt_topic, dps_key))
         
         if changed:
             attr = {
@@ -158,8 +158,8 @@ class TuyaMQTTEntity(Thread):
                 'via': self.entity['attributes']['via'],
                 'time': time.time()
             } 
-            if self.debuglevel >= 3:
-                    print("->publish %s/attributes" % (self.mqtt_topic))
+            
+            logger.debug("->publish %s/attributes" % (self.mqtt_topic))
             self.mqtt_client.publish("%s/attributes" % (self.mqtt_topic),  json.dumps(attr))
 
 
@@ -175,17 +175,16 @@ class TuyaMQTTEntity(Thread):
             self._process_data(data, via, force_mqtt)
             self._set_availability(True)
 
-        except Exception as ex:
-            print(ex, 'status for', self.mqtt_topic)
+        except Exception as ex:            
+            logger.error('status request on topic %s' % self.mqtt_topic, exc_info=True)
             self._set_availability(False)
 
 
     def set_state(self, dps_item, payload):
-        # print('set_state')
+
         try:  
-            #timer = time.time()
             data = tuyaface.set_state(self.entity, payload, dps_item)
-            # print(self.mqtt_topic,data, time.time()-timer)
+
             if data == None:
                 self.status('mqtt', True)
                 return
@@ -193,7 +192,7 @@ class TuyaMQTTEntity(Thread):
             self._process_data(data, 'mqtt', True)
 
         except Exception as ex:
-            print(ex, 'set_state for', self.mqtt_topic)
+            logger.error('set_state request on topic %s' % self.mqtt_topic, exc_info=True)
 
     def hass_discovery(self):
 
@@ -233,17 +232,14 @@ class TuyaMQTTEntity(Thread):
                 time.sleep(1)         
 
             if time.time() > time_run_status:   
-                if self.debuglevel >= 2:
-                    print('->status poll '+self.entity['ip']) 
+                logging.debug('->status poll '+self.entity['ip']) 
                 self.status()                
                 time_run_status = time.time()+self.entity['status_poll']  
-                if self.debuglevel >= 2: 
-                    print('<-status poll '+self.entity['ip'])             
+                logging.debug('<-status poll '+self.entity['ip'])             
 
             if time.time() > time_run_availability:               
                 time_run_availability = time.time()+15   
-                if self.debuglevel >= 3:
-                    print("->publish %s/availability" % self.mqtt_topic)     
+                logger.debug("->publish %s/availability" % self.mqtt_topic)     
                 self.mqtt_client.publish("%s/availability" % self.mqtt_topic, bool_availability(self.config, self.availability))         
 
             time.sleep(self.delay)            
@@ -251,8 +247,7 @@ class TuyaMQTTEntity(Thread):
    
     def on_connect(self, client, userdata, flags, rc):
 
-        if self.debuglevel >= 1:
-            print("MQTT Connection state: %s for %s" % (connack_string(rc), self.mqtt_topic))
+        logger.info("MQTT Connection state: %s for %s" % (connack_string(rc), self.mqtt_topic))
         client.subscribe("%s/#" % self.mqtt_topic)
         self.mqtt_connected = True
 
@@ -273,14 +268,6 @@ class TuyaMQTT:
         self.mqtt_topic = config['General']['topic']
         self.mqtt_connected = False
 
-        self.debuglevel = 0
-        if config['General']['debug'] == '-v':
-            self.debuglevel = 1
-        elif config['General']['debug'] == '-vv':
-            self.debuglevel = 2
-        elif config['General']['debug'] == '-vvv':
-            self.debuglevel = 3
-
         self.database = database
         self.database.setup()            
 
@@ -296,36 +283,23 @@ class TuyaMQTT:
             self.mqtt_client.loop_start()   
             self.mqtt_client.on_message = self.on_message
         except Exception as ex:
-            print('Failed to connect to MQTT Broker', ex)
+            logger.info('Failed to connect to MQTT Broker')
             self.mqtt_connected = False
    
 
     def on_connect(self, client, userdata, flags, rc):
 
-        if self.debuglevel >= 1:
-            print("MQTT Connection state: %s for %s" % (connack_string(rc), self.mqtt_topic))
+        logger.info("MQTT Connection state: %s for topic %s" % (connack_string(rc), self.mqtt_topic))
         client.subscribe("%s/#" % self.mqtt_topic)
         self.mqtt_connected = True
 
 
     def write_entity(self):
 
-        # try:
-        #     with open(self.entities_file, 'w') as fp:
-        #         json.dump(self.dictOfEntities, fp, indent=4)
-        # except:
-        #     print("%s not writable" % self.entities_file)  
         self.database.upsert_entities(self.dictOfEntities)
 
 
     def read_entity(self):
-
-        # if not path.isfile(self.entities_file):
-        #     print('file not found')
-        #     return
-
-        # with open(self.entities_file) as fp:
-        #     self.dictOfEntities = json.loads(fp.read())
 
         self.dictOfEntities = self.database.get_entities()
 
@@ -383,9 +357,7 @@ class TuyaMQTT:
         key = self.add_entity_dict(message.topic, message.retain)
 
         if key:
-            if self.debuglevel >= 1:
-                print("message received",str(message.payload.decode("utf-8")),\
-                "topic",message.topic,"retained",message.retain)    
+            logger.info("message received %s topic %s retained %s " % (str(message.payload.decode("utf-8")),message.topic, message.retain)) 
             entity = self.get_entity(key)
             
             myThreadOb1 = TuyaMQTTEntity(key, entity, self)     

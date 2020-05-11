@@ -14,13 +14,15 @@ Todo
 - device config via topic is rather crude
   - simple interface?
 - implement https://www.home-assistant.io/docs/mqtt/discovery/
-- implement logger and remove custom debugger
 - clean exit issue #3
+
 
 Changelog
 ==================
+- implemented logger and removed custom debugger
+- tuyaface to v1.1.5
+- clean up dockerfile
 - check requirements.txt 
-- tuyaface to v1.1.0
 - replaced entities.json with sqlite db
 - only publish onchange
 - added via mqtt/tuya
