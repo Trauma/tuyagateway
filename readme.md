@@ -19,6 +19,7 @@ Todo
 
 Changelog
 ==================
+- bump tuyaface to v1.1.6
 - implemented logger and removed custom debugger
 - tuyaface to v1.1.5
 - clean up dockerfile
