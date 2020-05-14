@@ -1,15 +1,18 @@
 import time
 import paho.mqtt.client as mqtt
 import json
-import tuyaface
-#import tuya.tuyaface as tuyaface
 from os import path
 from threading import Thread
-import database as database
-
 import logging
 
-#logging.basicConfig(level=logging.DEBUG)
+import database as database
+
+if True:
+    import tuyaface
+else:
+    # for local testing tuyaface
+    import tuya.tuyaface as tuyaface
+# logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
@@ -28,12 +31,12 @@ def connack_string(state):
 
 def payload_bool(payload:str):
 
-        str_payload = str(payload.decode("utf-8"))
-        if str_payload == 'True' or str_payload == 'ON' or str_payload == '1':
-            return True       
-        elif str_payload == 'False' or str_payload == 'OFF' or str_payload == '0':
-            return False    
-        return payload
+    str_payload = str(payload.decode("utf-8"))
+    if str_payload == 'True' or str_payload == 'ON' or str_payload == '1':
+        return True       
+    elif str_payload == 'False' or str_payload == 'OFF' or str_payload == '0':
+        return False    
+    return payload
 
 
 def bool_payload(config:dict, boolvalue:bool):
@@ -121,6 +124,7 @@ class TuyaMQTTEntity(Thread):
             self.availability = availability
             self.availability_changed = True
 
+
     def _process_data(self, data:dict, via:str, force_mqtt:bool = False):
 
         changed = force_mqtt
@@ -176,7 +180,7 @@ class TuyaMQTTEntity(Thread):
             self._set_availability(True)
 
         except Exception as ex:            
-            logger.error('status request on topic %s' % self.mqtt_topic, exc_info=True)
+            logger.error('status request on topic %s' % self.mqtt_topic, exc_info=False)
             self._set_availability(False)
 
 
@@ -193,6 +197,7 @@ class TuyaMQTTEntity(Thread):
 
         except Exception as ex:
             logger.error('set_state request on topic %s' % self.mqtt_topic, exc_info=True)
+
 
     def hass_discovery(self):
 
@@ -217,6 +222,7 @@ class TuyaMQTTEntity(Thread):
             "~": self.mqtt_topic
         }
         print(payload)
+
 
     def run(self):
 
@@ -331,6 +337,7 @@ class TuyaMQTT:
         # self.write_entity()
         self.database.insert_entity(entity)
         return key
+        
 
     def get_entity(self, key):
 

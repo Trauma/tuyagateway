@@ -4,7 +4,10 @@ import configparser
 
 from tuyamqtt import TuyaMQTT
 
+
 if __name__ == '__main__':
+
+    
     config = configparser.ConfigParser()
     config.read(['./config/tuyamqtt.conf','/etc/tuyamqtt.conf'])
 
