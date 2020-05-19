@@ -7,14 +7,15 @@ import logging
 
 import database as database
 
-if False:
+if True:
     import tuyaface
     from tuyaface.tuyaclient import TuyaClient
 else:
     # for local testing tuyaface
-    import tuya.tuyaface as tuyaface
-    logging.basicConfig(level=logging.DEBUG)
+    import tuya.tuyaface as tuyaface    
     from tuya.tuyaface.tuyaclient import TuyaClient
+    logging.basicConfig(level=logging.DEBUG)
+
 logger = logging.getLogger(__name__)
 
 
