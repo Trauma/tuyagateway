@@ -4,14 +4,14 @@ import configparser
 
 from tuyamqtt import TuyaMQTT
 
+
 if __name__ == '__main__':
+
+    
     config = configparser.ConfigParser()
     config.read(['./config/tuyamqtt.conf','/etc/tuyamqtt.conf'])
 
-    for x in sys.argv:      
-        if x == '-v' or x == '-vv' or x == '-vvv':
-            print("setting debug to:",x)
-            config['General']['debug'] = x       
+    config['General']['debug'] = ''
 
     server = TuyaMQTT(config)
  

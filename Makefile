@@ -1,6 +1,4 @@
 init:
-	rm -rf tuya
-	git clone https://github.com/TradeFace/tuya.git tuya
 	pip3 install -r requirements.txt
 
 install:
@@ -9,7 +7,5 @@ install:
 	sudo systemctl enable tuyamqtt.service
 	sudo systemctl start tuyamqtt.service
 
-docker:
-	rm -rf tuya
-	git clone https://github.com/TradeFace/tuya.git tuya
+docker:	
 	docker build -t tuyamqtt .
