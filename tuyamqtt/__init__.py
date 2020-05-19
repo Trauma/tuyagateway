@@ -9,10 +9,12 @@ import database as database
 
 if True:
     import tuyaface
+    from tuyaface.tuyaclient import TuyaClient
 else:
     # for local testing tuyaface
     import tuya.tuyaface as tuyaface
 # logging.basicConfig(level=logging.DEBUG)
+    from tuya.tuyaface.tuyaclient import TuyaClient
 logger = logging.getLogger(__name__)
 
 
@@ -231,7 +233,7 @@ class TuyaMQTTEntity(Thread):
 
         time_run_availability = 0
         time_run_status = 0
-        self.client = tuyaface.TuyaClient(self.entity, self.on_status)
+        self.client = TuyaClient(self.entity, self.on_status)
         self.client.start()
         # time_unset_reset = 0  
         # self.hass_discovery()
