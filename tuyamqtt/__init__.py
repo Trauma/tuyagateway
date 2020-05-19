@@ -179,7 +179,7 @@ class TuyaMQTTEntity(Thread):
             timer = time.time()
             data = tuya.set_status(self.entity, dps_item, payload)            
             # print(self.mqtt_topic,data, time.time()-timer)
-            if data == None:
+            if not data:
                 self.status('mqtt', True)
                 return
 
