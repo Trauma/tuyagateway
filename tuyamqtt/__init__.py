@@ -7,13 +7,13 @@ import logging
 
 import database as database
 
-if True:
+if False:
     import tuyaface
     from tuyaface.tuyaclient import TuyaClient
 else:
     # for local testing tuyaface
     import tuya.tuyaface as tuyaface
-# logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.DEBUG)
     from tuya.tuyaface.tuyaclient import TuyaClient
 logger = logging.getLogger(__name__)
 
@@ -194,7 +194,7 @@ class TuyaMQTTEntity(Thread):
         try:  
             data = self.client.set_state(payload, dps_item)
 
-            if data == None:
+            if not data:
                 self.status('mqtt', True)
                 return
 
