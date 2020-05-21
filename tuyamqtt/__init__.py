@@ -9,10 +9,12 @@ import database as database
 
 if True:
     import tuyaface
+    from tuyaface.tuyaclient import TuyaClient
 else:
     # for local testing tuyaface
     import tuya.tuyaface as tuyaface
 # logging.basicConfig(level=logging.DEBUG)
+    from tuya.tuyaface.tuyaclient import TuyaClient
 logger = logging.getLogger(__name__)
 
 
@@ -72,6 +74,7 @@ class TuyaMQTTEntity(Thread):
         self.mqtt_connected = False
         self.availability = False
         self.availability_changed = False
+        self.client = None
 
 
     def mqtt_connect(self): 
@@ -166,11 +169,13 @@ class TuyaMQTTEntity(Thread):
             logger.debug("->publish %s/attributes" % (self.mqtt_topic))
             self.mqtt_client.publish("%s/attributes" % (self.mqtt_topic),  json.dumps(attr))
 
+    def on_status(self, data:dict):
+        self._process_data(data, 'tuya')
 
     def status(self, via:str = 'tuya', force_mqtt:bool = False):
             
         try:
-            data = tuyaface.status(self.entity)
+            data = self.client.status()
 
             if not data:
                 self._set_availability(False)
@@ -187,9 +192,9 @@ class TuyaMQTTEntity(Thread):
     def set_state(self, dps_item, payload):
 
         try:  
-            data = tuyaface.set_state(self.entity, payload, dps_item)
+            data = self.client.set_state(payload, dps_item)
 
-            if data == None:
+            if not data:
                 self.status('mqtt', True)
                 return
 
@@ -228,6 +233,8 @@ class TuyaMQTTEntity(Thread):
 
         time_run_availability = 0
         time_run_status = 0
+        self.client = TuyaClient(self.entity, self.on_status)
+        self.client.start()
         # time_unset_reset = 0  
         # self.hass_discovery()
 
@@ -237,11 +244,6 @@ class TuyaMQTTEntity(Thread):
                 self.mqtt_connect()
                 time.sleep(1)         
 
-            if time.time() > time_run_status:   
-                logging.debug('->status poll '+self.entity['ip']) 
-                self.status()                
-                time_run_status = time.time()+self.entity['status_poll']  
-                logging.debug('<-status poll '+self.entity['ip'])             
 
             if time.time() > time_run_availability:               
                 time_run_availability = time.time()+15   
