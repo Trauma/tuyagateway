@@ -55,4 +55,29 @@ class Migration(migrations.Migration):
                 ('dpstype', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='tuyamqtt.Dpstype')),
             ],
         ),
+        migrations.AlterField(
+            model_name='device',
+            name='ip',
+            field=models.GenericIPAddressField(),
+        ),
+        migrations.AlterField(
+            model_name='device',
+            name='protocol',
+            field=models.CharField(choices=[('3.1', '3.1'), ('3.3', '3.3')], default='3.3', max_length=16),
+        ),
+        migrations.AlterField(
+            model_name='dps',
+            name='via',
+            field=models.CharField(choices=[('tuya', 'Tuya'), ('mqtt', 'MQTT')], default='tuya', max_length=8),
+        ),
+        migrations.AlterField(
+            model_name='dpstype',
+            name='discoverytype',
+            field=models.CharField(choices=[('light', 'Light'), ('switch', 'Switch'), ('sensor', 'Sensor'), ('binary_sensor', 'Binary Sensor')], default='light', max_length=16),
+        ),
+        migrations.AlterField(
+            model_name='dpstype',
+            name='valuetype',
+            field=models.CharField(choices=[('bool', 'Boolean'), ('int', 'Integer'), ('str', 'String')], default='bool', max_length=16),
+        ),
     ]

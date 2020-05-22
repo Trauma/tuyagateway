@@ -1,43 +1,74 @@
+todo
+----
+- read/write db from tuyamqtt
+
+
+Changelog
+---------
+- set db path
+- basic setup
+- user friendly admin panels
+    - device show related dps items
+    - option selects   
+- pre populate db for dpstypes
+
+Install
+----
+```
+python3 manage.py migrate
+python3 manage.py createsuperuser
+python3 manage.py loaddata dpstype
+```
+
+run it
+-------
+```
+python3 manage.py runserver
+```
+
 db model
 ----------
-
+```
 settings
 
 devices -< dps - dpstype
-
+```
 
 settings
 -------
-id:int PK
+```
 name:str
 value:str
-
+```
 
 device
 ------
-id:int PK
+```
 name:str
 topic:str
 protocol:str
-device_id:str
-device_key:str
+deviceid:str
+localkey:str
 ip:str
 hass_discovery:bool
+```
 
 dps
 -----
-id:int PK
-deviceid: int FK
-dps_nr:int
+```
+device: int FK
+key:int
 value:str
 via:str (tuya|mqtt)
-dpstypeid:int FK
+dpstype:int FK
+```
 
 dpstype
 ----------
-id:int PK
+```
 name:str
 valuetype:str (bool, int, str)
 range_min:float
 range_max:float
 discoverytype:str (switch|button|?)
+```

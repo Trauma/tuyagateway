@@ -1,0 +1,25 @@
+[
+    {
+      "model": "tuyamqtt.dpstype",
+      "pk": 1,
+      "fields": {
+        "name": "Switch",
+        "valuetype": "bool",
+        "range_min": 0,
+        "range_max": 255,
+        "discoverytype": "switch"
+      }
+    },    
+    {
+      "model": "tuyamqtt.dpstype",
+      "pk": 2,
+      "fields": {
+        "name": "Light",
+        "valuetype": "bool",
+        "range_min": 0,
+        "range_max": 255,
+        "discoverytype": "light"
+      }
+    }    
+  ]
+  
