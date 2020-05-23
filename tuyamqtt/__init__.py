@@ -88,6 +88,7 @@ class TuyaMQTTEntity(Thread):
             self.mqtt_client = mqtt.Client()
             self.mqtt_client.enable_logger()
             self.mqtt_client.username_pw_set(self.config['MQTT']['user'], self.config['MQTT']['pass'])
+            self.mqtt_client.will_set(f"{self.mqtt_topic}/availability" , bool_availability(self.config, False), retain=True)
             self.mqtt_client.connect(self.config['MQTT']['host'], int(self.config['MQTT']['port']), 60)
             self.mqtt_client.on_connect = self.on_connect
             self.mqtt_client.loop_start()   
@@ -139,7 +140,7 @@ class TuyaMQTTEntity(Thread):
         if availability != self.availability:
             self.availability = availability
             logger.debug("->publish %s/availability" % self.mqtt_topic)     
-            self.mqtt_client.publish("%s/availability" % self.mqtt_topic, bool_availability(self.config, availability))
+            self.mqtt_client.publish(f"{self.mqtt_topic}/availability" , bool_availability(self.config, availability), retain=True)
 
 
     def _process_data(self, data:dict, via:str, force_mqtt:bool = False):
