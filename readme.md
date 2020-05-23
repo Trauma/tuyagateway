@@ -20,6 +20,7 @@ Todo
 
 Changelog
 ==================
+- removed hass_discovery
 - moved UI basics -> https://github.com/TradeFace/mqttdevices 
 - bump tuyaface to v1.1.7 
   - near instant status updates on manual device handling
