@@ -16,7 +16,7 @@ else:
     from tuya.tuyaface.tuyaclient import TuyaClient
 
 loglevel=logging.INFO
-loglevel=logging.DEBUG
+#loglevel=logging.DEBUG
 logging.basicConfig(format='%(asctime)s %(levelname)-8s (%(threadName)s) [%(name)s] %(message)s', level=loglevel)
 logger = logging.getLogger(__name__)
 
