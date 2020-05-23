@@ -68,14 +68,10 @@ class TuyaMQTTEntity(Thread):
         self.key = key
       
         self.entity = entity
-        self.mqtt_topic = entity['topic']
-
-        self.mqtt_topic = f"tuya/{entity['protocol']}/{entity['deviceid']}/{entity['localkey']}/{entity['ip']}"
-
         self.parent = parent
         self.config = self.parent.config 
 
-        self.mqtt_topic = "%s/%s/%s/%s/%s"%(self.config['General']['topic'],entity['protocol'],entity['deviceid'],entity['localkey'],entity['ip'])
+        self.mqtt_topic = f"{self.config['General']['topic']}/{entity['protocol']}/{entity['deviceid']}/{entity['localkey']}/{entity['ip']}"
           
         self.mqtt_connected = False
         self.availability = False
@@ -118,7 +114,7 @@ class TuyaMQTTEntity(Thread):
     def on_connect(self, client, userdata, flags, rc):
 
         logger.info("MQTT Connection state: %s for %s" % (connack_string(rc), self.mqtt_topic))
-        client.subscribe("%s/#" % self.mqtt_topic)
+        client.subscribe(f"{self.mqtt_topic}/#")
         self.mqtt_connected = True
 
 
@@ -367,7 +363,7 @@ class TuyaMQTT:
     def on_connect(self, client, userdata, flags, rc):
 
         logger.info("MQTT Connection state: %s for topic %s",connack_string(rc), self.mqtt_topic)
-        client.subscribe("{self.mqtt_topic}/#")
+        client.subscribe(f"{self.mqtt_topic}/#")
         self.mqtt_connected = True
 
 
