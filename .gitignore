@@ -1,10 +1,5 @@
-tuyamqtt/__pycache__
 __pycache__
-*/__pycache__
-tuyamqtt/rest.py
-config/entities.json
 pythontuya
 tuya
 tuyamqtt.db
-node_modules
-web/node_modules
+db.sqlite3

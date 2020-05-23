@@ -8,17 +8,19 @@ Docs
 https://github.com/TradeFace/tuyamqtt/wiki
 
 
+
 Todo
 ===================
 - check config values
 - device config via topic is rather crude
-  - simple interface?
-- implement https://www.home-assistant.io/docs/mqtt/discovery/
+  - https://github.com/TradeFace/mqttdevices has to solve this (WIP)
+  - add tuyamqtt autodiscovery
 - clean exit issue #3
 
 
 Changelog
 ==================
+- moved UI basics -> https://github.com/TradeFace/mqttdevices 
 - bump tuyaface to v1.1.7 
   - near instant status updates on manual device handling
 - bump tuyaface to v1.1.6
