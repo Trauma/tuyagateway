@@ -7,7 +7,7 @@ import logging
 
 import database as database
 
-if False:
+if True:
     import tuyaface
     from tuyaface.tuyaclient import TuyaClient
 else:
