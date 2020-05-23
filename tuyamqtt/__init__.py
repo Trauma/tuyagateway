@@ -7,7 +7,7 @@ import logging
 
 import database as database
 
-if True:
+if False:
     import tuyaface
     from tuyaface.tuyaclient import TuyaClient
 else:
@@ -191,6 +191,7 @@ class TuyaMQTTEntity(Thread):
     def on_connection(self, connected: bool):
 
         self._set_availability(connected)
+        self.status('mqtt', True)
 
 
     def status(self, via:str = 'tuya', force_mqtt:bool = False):
@@ -311,6 +312,7 @@ class TuyaMQTTEntity(Thread):
         # time_unset_reset = 0  
         # self.hass_discovery(self.entity) 
         # return
+        
 
         while True:  
 
