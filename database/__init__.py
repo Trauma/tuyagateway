@@ -157,3 +157,88 @@ def delete_entity(entity:dict):
     cursor.execute('''DELETE FROM entities WHERE id = ? ''', (entity['id'],))
     #delete attributes
     db.commit()
+
+"""
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, ForeignKey
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, relationship
+
+Base = declarative_base()
+
+engine = create_engine('sqlite:///../config/db.sqlite3', echo=True)
+#PRAGMA table_info(tuyamqtt_dps);
+
+class Device(Base):
+    __tablename__ = 'tuyamqtt_device'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(32))
+    topic = Column(String(200))
+    protocol = Column(String(16))
+    deviceid = Column(String(64))
+    localkey = Column(String(64))
+    ip = Column(String(64))
+    hass_discovery = Column(Boolean)   
+    dpss = relationship("Dps", back_populates="device")
+
+class Dpstype(Base):
+    __tablename__ = 'tuyamqtt_dpstype'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(64))
+    valuetype = Column(String(16))
+    range_min = Column(Integer)
+    range_max = Column(Integer)
+    discoverytype = Column(String(16))
+    dps = relationship("Dps", back_populates="dpstype")
+
+class Dps(Base):
+    __tablename__ = 'tuyamqtt_dps'
+
+    id = Column(Integer, primary_key=True)
+    device_id = Column(Integer, ForeignKey('tuyamqtt_device.id'))
+    key = Column(Integer)
+    value = Column(String(16))
+    via = Column(String(8))
+    dpstype_id = Column(Integer, ForeignKey('tuyamqtt_dpstype.id'))
+
+    device = relationship("Device", back_populates= "dpss")
+    dpstype = relationship("Dpstype", back_populates="dps")
+
+    def __repr__(self):
+        return "<Dps(key='%s', value='%s', via='%s')>" % (
+                                self.key, self.value, self.via)
+
+
+# for row in session.query(Device).all():
+#     print(row.name, row.topic)
+
+# for row in session.query(Dpstype).all():
+#     print(row.name, row.valuetype)
+
+def _to_dict(row):
+    dictret = dict(row.__dict__)
+    dictret.pop('_sa_instance_state', None)
+    return dictret
+
+
+def get_devices():
+
+    Session = sessionmaker()
+    Session.configure(bind=engine)
+    session = Session()
+
+    devices = {}
+    for row in session.query(Device).join(Dps, Device.id==Dps.device_id).all():
+        device = _to_dict(row)
+        device['attributes'] = {'dps':{},'via':{}}      
+        for dps in row.dpss:
+            # dpsdict =_to_dict(dps)         
+            device['attributes']['dps'][dps.key] = dps.value
+            device['attributes']['via'][dps.key] = dps.via
+        devices[device['deviceid']] = device  
+    return devices
+
+
+print(get_devices())
+"""
