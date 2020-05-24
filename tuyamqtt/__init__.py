@@ -8,7 +8,7 @@ import logging
 
 import database as database
 
-if True:
+if False:
     import tuyaface
     from tuyaface.tuyaclient import TuyaClient
 else:
@@ -311,7 +311,7 @@ class TuyaMQTT:
         self.dictOfEntities = self.database.get_entities()
 
 
-    def add_entity_dict(self, entityRaw, retain):
+    def add_entity_dict_topic(self, entityRaw, retain):
         
         entityParts = entityRaw.split("/")
 
@@ -338,7 +338,16 @@ class TuyaMQTT:
         # self.write_entity()
         self.database.insert_entity(entity)
         return key
-        
+
+    def add_entity_dict_discovery(self, key:str, entity:dict): 
+
+        if key in self.dictOfEntities:
+            return False 
+
+        self.dictOfEntities[key] = entity
+        # self.write_entity()
+        # self.database.insert_entity(entity)
+        return key
 
     def get_entity(self, key):
 
@@ -359,13 +368,26 @@ class TuyaMQTT:
 
     def on_message(self, client, userdata, message):                   
 
+        topicParts = message.topic.split("/")
+        #TODO: keep list of device_ids to prevent double starts
+        if (topicParts[1] == 'discovery'):
+            entity = json.loads(message.payload)
+            self.add_entity_dict_discovery(topicParts[2], entity)
+            #TODO delete entity from db 
+            logger.info("discovery message received %s topic %s retained %s ", str(message.payload.decode("utf-8")), message.topic, message.retain)
+            myThreadOb1 = TuyaMQTTEntity(topicParts[2], entity, self)     
+            myThreadOb1.setName(topicParts[2])    
+            myThreadOb1.start()
+            return
+
+        #will be removed eventually
         if message.topic[-7:] != 'command':
             return   
         
-        key = self.add_entity_dict(message.topic, message.retain)
+        key = self.add_entity_dict_topic(message.topic, message.retain)
 
         if key:
-            logger.info("message received %s topic %s retained %s ", str(message.payload.decode("utf-8")), message.topic, message.retain)
+            logger.info("topic config message received %s topic %s retained %s ", str(message.payload.decode("utf-8")), message.topic, message.retain)
             entity = self.get_entity(key)
             
             myThreadOb1 = TuyaMQTTEntity(key, entity, self)     
@@ -381,7 +403,7 @@ class TuyaMQTT:
         self.read_entity()
      
         tpool = []
-        for key,entity in self.dictOfEntities.items():
+        for key,entity in self.dictOfEntities.items():            
             myThreadOb1 = TuyaMQTTEntity(key, entity, self)     
             myThreadOb1.setName(key)    
             myThreadOb1.start()
