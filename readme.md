@@ -8,9 +8,9 @@ Docs
 https://github.com/TradeFace/tuyamqtt/wiki
 
 
-
 Todo
 ===================
+_v1.1.0_
 - check config values
 - device config via topic is rather crude
   - https://github.com/TradeFace/mqttdevices has to solve this (WIP)
@@ -20,6 +20,9 @@ Todo
 
 Changelog
 ==================
+_v1.0.0_
+- clean up
+- bump tuyaface to v1.2.0
 - removed hass_discovery
 - moved UI basics -> https://github.com/TradeFace/mqttdevices 
 - bump tuyaface to v1.1.7 
