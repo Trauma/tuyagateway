@@ -2,6 +2,7 @@ import time
 import paho.mqtt.client as mqtt
 import json
 from os import path
+import queue
 from threading import Thread
 import logging
 
@@ -76,6 +77,8 @@ class TuyaMQTTEntity(Thread):
         self.mqtt_connected = False
         self.availability = False
         self.client = None
+
+        self.command_queue = queue.Queue()
 
 
     def mqtt_connect(self): 
@@ -188,7 +191,8 @@ class TuyaMQTTEntity(Thread):
     def on_connection(self, connected: bool):
 
         self._set_availability(connected)
-        self.status('mqtt', True)
+        # We're in TuyaClient's context, queue a call to tuyaclient.status
+        self.command_queue.put((self.status, ('mqtt', True)))
 
 
     def status(self, via:str = 'tuya', force_mqtt:bool = False):
@@ -245,6 +249,9 @@ class TuyaMQTTEntity(Thread):
             #     self.mqtt_client.publish("%s/availability" % self.mqtt_topic, bool_availability(self.config, self.availability)) 
                     
 
+            while not self.command_queue.empty():
+                command, args = self.command_queue.get()
+                result = command(*args)
 
             time.sleep(self.delay)      
 
