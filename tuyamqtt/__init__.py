@@ -2,6 +2,7 @@ import time
 import paho.mqtt.client as mqtt
 import json
 from os import path
+import queue
 from threading import Thread
 import logging
 
@@ -68,18 +69,16 @@ class TuyaMQTTEntity(Thread):
         self.key = key
       
         self.entity = entity
-        self.mqtt_topic = entity['topic']
-
-        self.mqtt_topic = f"tuya/{entity['protocol']}/{entity['deviceid']}/{entity['localkey']}/{entity['ip']}"
-
         self.parent = parent
         self.config = self.parent.config 
 
-        self.mqtt_topic = "%s/%s/%s/%s/%s"%(self.config['General']['topic'],entity['protocol'],entity['deviceid'],entity['localkey'],entity['ip'])
+        self.mqtt_topic = f"{self.config['General']['topic']}/{entity['protocol']}/{entity['deviceid']}/{entity['localkey']}/{entity['ip']}"
           
         self.mqtt_connected = False
         self.availability = False
         self.client = None
+
+        self.command_queue = queue.Queue()
 
 
     def mqtt_connect(self): 
@@ -106,6 +105,12 @@ class TuyaMQTTEntity(Thread):
 
         logging.debug("(%s) topic %s retained %s message received %s", self.entity['ip'], message.topic,message.retain,str(message.payload.decode("utf-8")))
 
+        # We're in the MQTT client's context, queue a call to handle the message
+        self.command_queue.put((self._handle_mqtt_message, (message, )))
+
+
+    def _handle_mqtt_message(self, message):
+
         entityParts = message.topic.split("/")  
         dps_key = str(entityParts[5]) #will give problem with custom topics
 
@@ -119,7 +124,7 @@ class TuyaMQTTEntity(Thread):
     def on_connect(self, client, userdata, flags, rc):
 
         logger.info("MQTT Connection state: %s for %s" % (connack_string(rc), self.mqtt_topic))
-        client.subscribe("%s/#" % self.mqtt_topic)
+        client.subscribe(f"{self.mqtt_topic}/#")
         self.mqtt_connected = True
 
 
@@ -192,7 +197,8 @@ class TuyaMQTTEntity(Thread):
     def on_connection(self, connected: bool):
 
         self._set_availability(connected)
-        self.status('mqtt', True)
+        # We're in TuyaClient's context, queue a call to tuyaclient.status
+        self.command_queue.put((self.status, ('mqtt', True)))
 
 
     def status(self, via:str = 'tuya', force_mqtt:bool = False):
@@ -207,7 +213,7 @@ class TuyaMQTTEntity(Thread):
             self._process_data(data, via, force_mqtt)
             self._set_availability(True)
 
-        except Exception as ex:            
+        except Exception:            
             logger.exception('(%s) status request error', self.entity['ip'])
 
             self._set_availability(False)
@@ -216,94 +222,12 @@ class TuyaMQTTEntity(Thread):
     def set_state(self, dps_item, payload):
 
         try:  
-            data = self.client.set_state(payload, dps_item)
+            result = self.client.set_state(payload, dps_item)
+            if not result:
+                logger.error('(%s) set_state request on topic %s failed', self.entity['ip'], self.mqtt_topic)
 
-            if not data:
-                self.status('mqtt', True)
-                return
-
-            self._process_data(data, 'mqtt', True)
-
-        except Exception as ex:
-            logger.error('(%s) set_state request on topic %s', self.entity['ip'], self.mqtt_topic, exc_info=True)
-
-    def hass_discovery(self, entity):
-
-        if entity['ip'] != '192.168.1.25':
-            return
-
-        for item in entity['attributes']['dps'].items():
-            self.hass_disc_item(item)
-
-
-    def hass_disc_item(self, item):
-        """
-        08:56:40 MQT: kitchen_left_lighting/tele/LWT = Online (retained)
-        08:56:40 MQT: kitchen_left_lighting/cmnd/POWER = 
-        08:56:40 MQT: kitchen_left_lighting/tele/INFO1 = {"Module":"Sonoff Basic","Version":"8.1.0.2(1e06976-tasmota)","FallbackTopic":"cmnd/kitchen_left_lighting_fb/","GroupTopic":"sonoffs/cmnd/"}
-        08:56:40 MQT: kitchen_left_lighting/tele/INFO2 = {"WebServerMode":"Admin","Hostname":"kitchen_left_lighting-7456","IPAddress":"192.168.1.34"}
-        08:56:40 MQT: kitchen_left_lighting/tele/INFO3 = {"RestartReason":"Software/System restart"}
-        08:56:40 MQT: kitchen_left_lighting/stat/RESULT = {"POWER":"OFF"}
-        08:56:40 MQT: kitchen_left_lighting/stat/POWER = OFF
-        08:56:41 MQT: homeassistant/light/ABBD20_LI_1/config =  (retained)
-        08:56:41 MQT: homeassistant/switch/ABBD20_RL_1/config = {"name":"Kitchen Left Lighting","cmd_t":"~cmnd/POWER","stat_t":"~tele/STATE","val_tpl":"{{value_json.POWER}}","pl_off":"OFF","pl_on":"ON","avty_t":"~tele/LWT","pl_avail":"Online","pl_not_avail":"Offline","uniq_id":"ABBD20_RL_1","device":{"identifiers":["ABBD20"],"connections":[["mac","DC:4F:22:AB:BD:20"]]},"~":"kitchen_left_lighting/"} (retained)
-        08:56:41 MQT: homeassistant/light/ABBD20_LI_2/config =  (retained)
-        08:56:41 MQT: homeassistant/switch/ABBD20_RL_2/config =  (retained)
-        08:56:41 MQT: homeassistant/light/ABBD20_LI_3/config =  (retained)
-        08:56:41 MQT: homeassistant/switch/ABBD20_RL_3/config =  (retained)
-        08:56:41 MQT: homeassistant/light/ABBD20_LI_4/config =  (retained)
-        08:56:41 MQT: homeassistant/switch/ABBD20_RL_4/config =  (retained)
-        08:56:41 MQT: homeassistant/light/ABBD20_LI_5/config =  (retained)
-        08:56:41 MQT: homeassistant/switch/ABBD20_RL_5/config =  (retained)
-        08:56:41 MQT: homeassistant/light/ABBD20_LI_6/config =  (retained)
-        08:56:41 MQT: homeassistant/switch/ABBD20_RL_6/config =  (retained)
-        08:56:41 MQT: homeassistant/light/ABBD20_LI_7/config =  (retained)
-        08:56:41 MQT: homeassistant/switch/ABBD20_RL_7/config =  (retained)
-        08:56:41 MQT: homeassistant/light/ABBD20_LI_8/config =  (retained)
-        08:56:41 MQT: homeassistant/switch/ABBD20_RL_8/config =  (retained)
-        08:56:41 MQT: homeassistant/binary_sensor/ABBD20_BTN_1/config = {"name":"Kitchen Left Lighting Button1","stat_t":"~stat/BUTTON1","avty_t":"~tele/LWT","pl_avail":"Online","pl_not_avail":"Offline","uniq_id":"ABBD20_BTN_1","device":{"identifiers":["ABBD20"],"connections":[["mac","DC:4F:22:AB:BD:20"]]},"~":"kitchen_left_lighting/","value_template":"{{value_json.STATE}}","pl_on":"TOGGLE","off_delay":1} (retained)
-        08:56:41 MQT: homeassistant/binary_sensor/ABBD20_BTN_2/config =  (retained)
-        08:56:41 MQT: homeassistant/binary_sensor/ABBD20_BTN_3/config =  (retained)
-        08:56:41 MQT: homeassistant/binary_sensor/ABBD20_BTN_4/config =  (retained)
-        08:56:41 MQT: homeassistant/binary_sensor/ABBD20_SW_1/config =  (retained)
-        08:56:41 MQT: homeassistant/binary_sensor/ABBD20_SW_2/config =  (retained)
-        08:56:41 MQT: homeassistant/binary_sensor/ABBD20_SW_3/config =  (retained)
-        08:56:41 MQT: homeassistant/binary_sensor/ABBD20_SW_4/config =  (retained)
-        08:56:41 MQT: homeassistant/binary_sensor/ABBD20_SW_5/config =  (retained)
-        08:56:41 MQT: homeassistant/binary_sensor/ABBD20_SW_6/config =  (retained)
-        08:56:41 MQT: homeassistant/binary_sensor/ABBD20_SW_7/config =  (retained)
-        08:56:41 MQT: homeassistant/binary_sensor/ABBD20_SW_8/config =  (retained)
-        08:56:41 MQT: homeassistant/sensor/ABBD20_status/config = {"name":"Kitchen Left Lighting status","stat_t":"~HASS_STATE","avty_t":"~LWT","frc_upd":true,"pl_avail":"Online","pl_not_avail":"Offline","json_attributes_topic":"~HASS_STATE","unit_of_meas":" ","val_tpl":"{{value_json['RSSI']}}","ic":"mdi:information-outline","uniq_id":"ABBD20_status","device":{"identifiers":["ABBD20"],"connections":[["mac","DC:4F:22:AB:BD:20"]],"name":"Kitchen Left Lighting","model":"Sonoff Basic","sw_version":"8.1.0.2(1e06976-tasmota)","manufacturer":"Tasmota"},"~":"kitchen_left_lighting/tele/"} (retained)
-        08:56:44 MQT: kitchen_left_lighting/tele/STATE = {"Time":"2020-05-22T08:56:44","Uptime":"0T00:00:12","UptimeSec":1
-        """
-
-        print(item)
-        device_dps = '%s_%s' % (self.entity['deviceid'], item[0])
-        """
-        we have no knowledge of what the dps values actualy do at this point
-        need an interface so enduser can configure
-        """
-        hass_topic = 'homeassistant/%s/%s/config' % ('unknown', device_dps)
-
-       
-        payload = {
-            "name": "name here",
-            "cmd_t": "~command",
-            "stat_t": "~state",
-            "val_tpl":"{{value_json.POWER}}",
-            "pl_off": self.config['General']['payload_off'],
-            "pl_on": self.config['General']['payload_off'],
-            "avty_t":"~availability",
-            "pl_avail": self.config['General']['availability_online'],
-            "pl_not_avail": self.config['General']['availability_offline'],
-            "uniq_id": device_dps,
-            "device":{
-                "identifiers":[self.entity['deviceid']]
-            },
-            "~": self.mqtt_topic
-        }
-        print(hass_topic)
-        print(payload)
+        except Exception:
+            logger.error('(%s) set_state request on topic %s', self.entity['ip'], self.mqtt_topic, exc_info=True)    
 
 
     def run(self):        
@@ -311,7 +235,7 @@ class TuyaMQTTEntity(Thread):
         self.client = TuyaClient(self.entity, self.on_status, self.on_connection)
         self.client.start()
         # time_unset_reset = 0  
-        # self.hass_discovery(self.entity) 
+       
         # return
         
 
@@ -327,6 +251,9 @@ class TuyaMQTTEntity(Thread):
             #     self.mqtt_client.publish("%s/availability" % self.mqtt_topic, bool_availability(self.config, self.availability)) 
                     
 
+            while not self.command_queue.empty():
+                command, args = self.command_queue.get()
+                result = command(*args)
 
             time.sleep(self.delay)      
 
@@ -370,7 +297,7 @@ class TuyaMQTT:
     def on_connect(self, client, userdata, flags, rc):
 
         logger.info("MQTT Connection state: %s for topic %s",connack_string(rc), self.mqtt_topic)
-        client.subscribe("{self.mqtt_topic}/#")
+        client.subscribe(f"{self.mqtt_topic}/#")
         self.mqtt_connected = True
 
 
