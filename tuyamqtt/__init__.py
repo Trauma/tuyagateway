@@ -105,6 +105,12 @@ class TuyaMQTTEntity(Thread):
 
         logging.debug("(%s) topic %s retained %s message received %s", self.entity['ip'], message.topic,message.retain,str(message.payload.decode("utf-8")))
 
+        # We're in the MQTT client's context, queue a call to handle the message
+        self.command_queue.put((self._handle_mqtt_message, (message, )))
+
+
+    def _handle_mqtt_message(self, message):
+
         entityParts = message.topic.split("/")  
         dps_key = str(entityParts[5]) #will give problem with custom topics
 
@@ -216,13 +222,9 @@ class TuyaMQTTEntity(Thread):
     def set_state(self, dps_item, payload):
 
         try:  
-            data = self.client.set_state(payload, dps_item)
-
-            if not data:
-                self.status('mqtt', True)
-                return
-
-            self._process_data(data, 'mqtt', True)
+            result = self.client.set_state(payload, dps_item)
+            if not result:
+                logger.error('(%s) set_state request on topic %s failed', self.entity['ip'], self.mqtt_topic)
 
         except Exception:
             logger.error('(%s) set_state request on topic %s', self.entity['ip'], self.mqtt_topic, exc_info=True)    
