@@ -2,6 +2,7 @@ import time
 import paho.mqtt.client as mqtt
 import json
 from os import path
+import queue
 from threading import Thread
 import logging
 
@@ -77,6 +78,8 @@ class TuyaMQTTEntity(Thread):
         self.availability = False
         self.client = None
 
+        self.command_queue = queue.Queue()
+
 
     def mqtt_connect(self): 
 
@@ -101,6 +104,12 @@ class TuyaMQTTEntity(Thread):
             return   
 
         logging.debug("(%s) topic %s retained %s message received %s", self.entity['ip'], message.topic,message.retain,str(message.payload.decode("utf-8")))
+
+        # We're in the MQTT client's context, queue a call to handle the message
+        self.command_queue.put((self._handle_mqtt_message, (message, )))
+
+
+    def _handle_mqtt_message(self, message):
 
         entityParts = message.topic.split("/")  
         dps_key = str(entityParts[5]) #will give problem with custom topics
@@ -188,7 +197,8 @@ class TuyaMQTTEntity(Thread):
     def on_connection(self, connected: bool):
 
         self._set_availability(connected)
-        self.status('mqtt', True)
+        # We're in TuyaClient's context, queue a call to tuyaclient.status
+        self.command_queue.put((self.status, ('mqtt', True)))
 
 
     def status(self, via:str = 'tuya', force_mqtt:bool = False):
@@ -212,13 +222,9 @@ class TuyaMQTTEntity(Thread):
     def set_state(self, dps_item, payload):
 
         try:  
-            data = self.client.set_state(payload, dps_item)
-
-            if not data:
-                self.status('mqtt', True)
-                return
-
-            self._process_data(data, 'mqtt', True)
+            result = self.client.set_state(payload, dps_item)
+            if not result:
+                logger.error('(%s) set_state request on topic %s failed', self.entity['ip'], self.mqtt_topic)
 
         except Exception:
             logger.error('(%s) set_state request on topic %s', self.entity['ip'], self.mqtt_topic, exc_info=True)    
@@ -245,6 +251,9 @@ class TuyaMQTTEntity(Thread):
             #     self.mqtt_client.publish("%s/availability" % self.mqtt_topic, bool_availability(self.config, self.availability)) 
                     
 
+            while not self.command_queue.empty():
+                command, args = self.command_queue.get()
+                result = command(*args)
 
             time.sleep(self.delay)      
 
