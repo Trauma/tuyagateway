@@ -3,7 +3,7 @@ import paho.mqtt.client as mqtt
 import json
 from os import path
 import queue
-from threading import Thread
+import threading
 import logging
 
 import database as database
@@ -47,6 +47,7 @@ def payload_bool(payload:str):
 
 def bool_payload(config:dict, boolvalue:bool):
 
+    #TODO: get from entity
     if boolvalue:
         return config['General']['payload_on']
     return config['General']['payload_off']
@@ -54,18 +55,19 @@ def bool_payload(config:dict, boolvalue:bool):
 
 def bool_availability(config:dict, boolvalue:bool):
 
+    #TODO: get from entity
     if boolvalue:
         return config['General']['availability_online']
     return config['General']['availability_offline']
 
 
-class TuyaMQTTEntity(Thread):
+class TuyaMQTTEntity(threading.Thread):
 
     delay = 0.1
 
     def __init__(self, key, entity, parent):        
  
-        Thread.__init__(self)
+        super().__init__()
         self.key = key
       
         self.entity = entity
@@ -81,6 +83,7 @@ class TuyaMQTTEntity(Thread):
         self.mqtt_connected = False
         self.availability = False
         self.client = None
+        self.stop = threading.Event()
 
         self.command_queue = queue.Queue()
 
@@ -103,6 +106,12 @@ class TuyaMQTTEntity(Thread):
 
 
     def on_message(self, client, userdata, message):      
+
+        if message.topic[-4:] == 'kill':
+            self.client.stop_client()
+            self.stop.set()
+            self.join()
+            return
 
         if message.topic[-7:] != 'command':
             return   
@@ -261,8 +270,7 @@ class TuyaMQTT:
     def __init__(self, config):
 
         self.config = config
-
-        # self.entities_file = config['General']['entity_file']
+        #TODO: set fixed, not need to be dynamic here
         self.mqtt_topic = config['General']['topic']
         self.mqtt_connected = False
 
@@ -330,7 +338,7 @@ class TuyaMQTT:
     def add_entity_dict_discovery(self, key:str, entity:dict): 
 
         if key in self.dictOfEntities:
-            return False 
+            self.database.delete_entity(self.dictOfEntities[key])            
 
         self.dictOfEntities[key] = entity
         return key
@@ -355,9 +363,12 @@ class TuyaMQTT:
     def on_message(self, client, userdata, message):                   
 
         topicParts = message.topic.split("/")
-        #TODO: keep list of device_ids to prevent double starts
+
         if (topicParts[1] == 'discovery'):
-            #TODO: kill thread and rm from db on payload None -- isn't received -> trigger reload from mqttdevices 
+            if message.payload == b'':
+                return
+            print(message.payload)
+            #TODO: kill thread on payload None -- isn't received -> trigger reload from mqttdevices 
             entity = json.loads(message.payload)
             print(message.topic, entity)
 
@@ -366,12 +377,12 @@ class TuyaMQTT:
                 'via': {}
             }
             self.add_entity_dict_discovery(topicParts[2], entity)
-            #TODO delete entity from db 
+        
             logger.info("discovery message received %s topic %s retained %s ", str(message.payload.decode("utf-8")), message.topic, message.retain)
             myThreadOb1 = TuyaMQTTEntity(topicParts[2], entity, self)     
             myThreadOb1.setName(topicParts[2])    
             myThreadOb1.start()
-        # return
+        return
 
         #will be removed eventually
         if message.topic[-7:] != 'command':
@@ -396,11 +407,11 @@ class TuyaMQTT:
         self.read_entity()
      
         tpool = []
-        for key,entity in self.dictOfEntities.items():            
-            myThreadOb1 = TuyaMQTTEntity(key, entity, self)     
-            myThreadOb1.setName(key)    
-            myThreadOb1.start()
-            tpool.append(myThreadOb1)
+        # for key,entity in self.dictOfEntities.items():            
+        #     myThreadOb1 = TuyaMQTTEntity(key, entity, self)     
+        #     myThreadOb1.setName(key)    
+        #     myThreadOb1.start()
+        #     tpool.append(myThreadOb1)
  
         time_run_save = 0
         
