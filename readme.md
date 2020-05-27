@@ -12,12 +12,12 @@ Todo
 ===================
 _v1.1.0_
 - check config values
-- clean exit issue #3
-
 
 Changelog
 ==================
 _v1.1.0_
+- Ctrl+C does not stop server #3
+- listen for kill signal from mqttdevices
 - device config via topic is rather crude
   - https://github.com/TradeFace/mqttdevices has to solve this (WIP)
   - add tuyamqtt Autodiscovery #28
