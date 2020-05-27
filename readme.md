@@ -12,14 +12,17 @@ Todo
 ===================
 _v1.1.0_
 - check config values
-- device config via topic is rather crude
-  - https://github.com/TradeFace/mqttdevices has to solve this (WIP)
-  - add tuyamqtt autodiscovery
 - clean exit issue #3
 
 
 Changelog
 ==================
+_v1.1.0_
+- device config via topic is rather crude
+  - https://github.com/TradeFace/mqttdevices has to solve this (WIP)
+  - add tuyamqtt Autodiscovery #28
+- Remove availability logic from TuyaMQTTEntity.status #26
+
 _v1.0.0_
 - clean up
 - bump tuyaface to v1.2.0

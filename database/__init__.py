@@ -109,8 +109,8 @@ def attributes_to_json(entity:dict):
 def insert_entity(entity:dict):
     # print('insert_entity')
     try:
-        cursor.execute('''INSERT INTO entities(deviceid, localkey, ip, protocol, topic, attributes, status_poll)
-                        VALUES(:deviceid, :localkey, :ip, :protocol, :topic, :attributes, :status_poll)''',
+        cursor.execute('''INSERT INTO entities(deviceid, localkey, ip, protocol, topic, attributes)
+                        VALUES(:deviceid, :localkey, :ip, :protocol, :topic, :attributes)''',
                         attributes_to_json(entity))
         db.commit()
         entity['id'] = cursor.lastrowid
@@ -129,9 +129,9 @@ def update_entity(entity:dict):
     try:
         with db:
             db.execute('''UPDATE entities 
-                    SET deviceid = ?, localkey = ?, ip = ?, protocol = ?, topic = ?, attributes = ?, status_poll = ?
+                    SET deviceid = ?, localkey = ?, ip = ?, protocol = ?, topic = ?, attributes = ?
                     WHERE id = ?''',
-                    (entity['deviceid'], entity['localkey'], entity['ip'], entity['protocol'], entity['topic'], json.dumps(entity['attributes']), entity['status_poll'], entity['id'])
+                    (entity['deviceid'], entity['localkey'], entity['ip'], entity['protocol'], entity['topic'], json.dumps(entity['attributes']), entity['id'])
                     )
     except Exception as e:
         # print(e)

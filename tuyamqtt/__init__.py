@@ -17,7 +17,7 @@ else:
     from tuya.tuyaface.tuyaclient import TuyaClient
 
 loglevel=logging.INFO
-#loglevel=logging.DEBUG
+# loglevel=logging.DEBUG
 logging.basicConfig(format='%(asctime)s %(levelname)-8s (%(threadName)s) [%(name)s] %(message)s', level=loglevel)
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,11 @@ class TuyaMQTTEntity(Thread):
         self.parent = parent
         self.config = self.parent.config 
 
+        self.tuya_discovery = False
         self.mqtt_topic = f"{self.config['General']['topic']}/{entity['protocol']}/{entity['deviceid']}/{entity['localkey']}/{entity['ip']}"
+        if 'tuya_discovery' in entity and entity['tuya_discovery']:
+            self.tuya_discovery = True
+            self.mqtt_topic = f"{self.config['General']['topic']}/{entity['deviceid']}"             
           
         self.mqtt_connected = False
         self.availability = False
@@ -111,8 +115,9 @@ class TuyaMQTTEntity(Thread):
 
     def _handle_mqtt_message(self, message):
 
+        #will give problem with custom topics
         entityParts = message.topic.split("/")  
-        dps_key = str(entityParts[5]) #will give problem with custom topics
+        dps_key = str(entityParts[len(entityParts)-2])        
 
         if dps_key not in self.entity['attributes']['dps']:
             self._set_dps(dps_key, None)
@@ -191,6 +196,7 @@ class TuyaMQTTEntity(Thread):
 
     def on_status(self, data:dict):
 
+        #TODO: via is broken. When state command comes in from mqtt via should be mqtt
         self._process_data(data, 'tuya')
 
 
@@ -207,16 +213,12 @@ class TuyaMQTTEntity(Thread):
             data = self.client.status()
 
             if not data:
-                self._set_availability(False)
                 return
        
             self._process_data(data, via, force_mqtt)
-            self._set_availability(True)
 
         except Exception:            
             logger.exception('(%s) status request error', self.entity['ip'])
-
-            self._set_availability(False)
 
 
     def set_state(self, dps_item, payload):
@@ -233,30 +235,19 @@ class TuyaMQTTEntity(Thread):
     def run(self):        
    
         self.client = TuyaClient(self.entity, self.on_status, self.on_connection)
-        self.client.start()
-        # time_unset_reset = 0  
-       
-        # return
-        
+        self.client.start()        
 
         while True:  
 
             if not self.mqtt_connected:
                 self.mqtt_connect()
-                time.sleep(1)      
-
-            # if time.time() > time_run_availability:               
-            #     time_run_availability = time.time()+15   
-            #     logger.debug("->publish %s/availability" % self.mqtt_topic)     
-            #     self.mqtt_client.publish("%s/availability" % self.mqtt_topic, bool_availability(self.config, self.availability)) 
-                    
+                time.sleep(1)                       
 
             while not self.command_queue.empty():
                 command, args = self.command_queue.get()
                 result = command(*args)
 
-            time.sleep(self.delay)      
-
+            time.sleep(self.delay)
 
 
 class TuyaMQTT:
@@ -311,7 +302,7 @@ class TuyaMQTT:
         self.dictOfEntities = self.database.get_entities()
 
 
-    def add_entity_dict(self, entityRaw, retain):
+    def add_entity_dict_topic(self, entityRaw, retain):
         
         entityParts = entityRaw.split("/")
 
@@ -324,21 +315,25 @@ class TuyaMQTT:
             'protocol': entityParts[1],
             'deviceid': entityParts[2],
             'localkey': entityParts[3],
-            'ip': entityParts[4],
-            'topic': key,            
+            'ip': entityParts[4],        
             'attributes': {
                 'dps': {},
                 'via': {}
             },
-            'status_poll': 5.0,
             'hass_discover': False
         }
 
         self.dictOfEntities[key] = entity
-        # self.write_entity()
         self.database.insert_entity(entity)
         return key
-        
+
+    def add_entity_dict_discovery(self, key:str, entity:dict): 
+
+        if key in self.dictOfEntities:
+            return False 
+
+        self.dictOfEntities[key] = entity
+        return key
 
     def get_entity(self, key):
 
@@ -359,13 +354,33 @@ class TuyaMQTT:
 
     def on_message(self, client, userdata, message):                   
 
+        topicParts = message.topic.split("/")
+        #TODO: keep list of device_ids to prevent double starts
+        if (topicParts[1] == 'discovery'):
+            #TODO: kill thread and rm from db on payload None -- isn't received -> trigger reload from mqttdevices 
+            entity = json.loads(message.payload)
+            print(message.topic, entity)
+
+            entity['attributes'] = {
+                'dps': {},
+                'via': {}
+            }
+            self.add_entity_dict_discovery(topicParts[2], entity)
+            #TODO delete entity from db 
+            logger.info("discovery message received %s topic %s retained %s ", str(message.payload.decode("utf-8")), message.topic, message.retain)
+            myThreadOb1 = TuyaMQTTEntity(topicParts[2], entity, self)     
+            myThreadOb1.setName(topicParts[2])    
+            myThreadOb1.start()
+        # return
+
+        #will be removed eventually
         if message.topic[-7:] != 'command':
             return   
         
-        key = self.add_entity_dict(message.topic, message.retain)
+        key = self.add_entity_dict_topic(message.topic, message.retain)
 
         if key:
-            logger.info("message received %s topic %s retained %s ", str(message.payload.decode("utf-8")), message.topic, message.retain)
+            logger.info("topic config message received %s topic %s retained %s ", str(message.payload.decode("utf-8")), message.topic, message.retain)
             entity = self.get_entity(key)
             
             myThreadOb1 = TuyaMQTTEntity(key, entity, self)     
@@ -381,7 +396,7 @@ class TuyaMQTT:
         self.read_entity()
      
         tpool = []
-        for key,entity in self.dictOfEntities.items():
+        for key,entity in self.dictOfEntities.items():            
             myThreadOb1 = TuyaMQTTEntity(key, entity, self)     
             myThreadOb1.setName(key)    
             myThreadOb1.start()
