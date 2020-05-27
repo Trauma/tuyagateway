@@ -87,6 +87,7 @@ class TuyaMQTTEntity(threading.Thread):
         self.stop = threading.Event()
 
         self.command_queue = queue.Queue()
+
     def mqtt_connect(self):
 
         try:
@@ -106,6 +107,7 @@ class TuyaMQTTEntity(threading.Thread):
             logger.warning(
                 '(%s) Failed to connect to MQTT Broker %s', self.entity['ip'], ex)
             self.mqtt_connected = False
+
     def on_message(self, client, userdata, message):
 
         if message.topic[-4:] == 'kill':
@@ -141,6 +143,7 @@ class TuyaMQTTEntity(threading.Thread):
                     (connack_string(rc), self.mqtt_topic))
         client.subscribe(f"{self.mqtt_topic}/#")
         self.mqtt_connected = True
+
     def _set_dps(self, dps_key, dps_value: str):
 
         self.entity['attributes']['dps'][dps_key] = dps_value
@@ -217,6 +220,7 @@ class TuyaMQTTEntity(threading.Thread):
         self._set_availability(connected)
         # We're in TuyaClient's context, queue a call to tuyaclient.status
         self.command_queue.put((self.status, ('mqtt', True)))
+
     def status(self, via: str = 'tuya', force_mqtt: bool = False):
 
         try:
@@ -378,7 +382,7 @@ class TuyaMQTT:
             myThreadOb1 = TuyaMQTTEntity(topicParts[2], entity, self)
             myThreadOb1.setName(topicParts[2])
             myThreadOb1.start()
-        return
+        # return
 
         # will be removed eventually
         if message.topic[-7:] != 'command':
@@ -402,11 +406,11 @@ class TuyaMQTT:
         self.read_entity()
 
         tpool = []
-        # for key,entity in self.dictOfEntities.items():
-        #     myThreadOb1 = TuyaMQTTEntity(key, entity, self)
-        #     myThreadOb1.setName(key)
-        #     myThreadOb1.start()
-        #     tpool.append(myThreadOb1)
+        for key,entity in self.dictOfEntities.items():
+            myThreadOb1 = TuyaMQTTEntity(key, entity, self)
+            myThreadOb1.setName(key)
+            myThreadOb1.start()
+            tpool.append(myThreadOb1)
 
         time_run_save = 0
 
