@@ -3,3 +3,6 @@ pythontuya
 tuya
 tuyamqtt.db
 db.sqlite3
+dist
+build
+*egg-info
