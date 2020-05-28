@@ -1,52 +1,46 @@
 #!/usr/bin/python3
 import sys
 import configparser
-from tuyamqtt.cmdline import args
+from tuyamqtt.cmdline import ARGS
 
 from tuyamqtt import TuyaMQTT
 
-baseconfig= {
-    'General': {
-        'topic': 'tuya',
-        'payload_on': 'ON',
-        'payload_off': 'OFF',
-        'availability_online': 'online',
-        'availability_offline': 'offline',
+baseconfig = {
+    "General": {
+        "topic": "tuya",
+        "payload_on": "ON",
+        "payload_off": "OFF",
+        "availability_online": "online",
+        "availability_offline": "offline",
     },
-    'MQTT': {
-        'user': None,
-        'pass': None,
-        'host': '127.0.0.1',
-        'port': 1883,
-    }
+    "MQTT": {"user": None, "pass": None, "host": "127.0.0.1", "port": 1883,},
 }
 
-if __name__ == '__main__':    
-    
+if __name__ == "__main__":
+
     try:
         config = configparser.ConfigParser()
-        if args.config_file:
-            config.read([args.config_file])
+        if ARGS.config_file:
+            config.read([ARGS.config_file])
         else:
-            config.read(['./config/tuyamqtt.conf', '/etc/tuyamqtt.conf'])
+            config.read(["./config/tuyamqtt.conf", "/etc/tuyamqtt.conf"])
     except Exception:
         config = baseconfig
         pass
 
-    if args.host:
-        config['MQTT']['host'] = args.host
-    if args.port:
-        config['MQTT']['port'] = args.port
-    if args.user:
-        config['MQTT']['user'] = args.user
-    if args.password:
-        config['MQTT']['password'] = args.password
-    
+    if ARGS.host:
+        config["MQTT"]["host"] = ARGS.host
+    if ARGS.port:
+        config["MQTT"]["port"] = ARGS.port
+    if ARGS.user:
+        config["MQTT"]["user"] = ARGS.user
+    if ARGS.password:
+        config["MQTT"]["password"] = ARGS.password
 
     server = TuyaMQTT(config)
 
     try:
         server.main_loop()
     except KeyboardInterrupt:
-        print('Ctrl C - Stopping server')
+        print("Ctrl C - Stopping server")
         sys.exit(1)
