@@ -3,7 +3,7 @@ import json
 
 """
 Database will be removed when mqttdevices works properly
-so no effort to make this better.
+Target v2.0.0
 """
 
 db = sqlite3.connect('./config/tuyamqtt.db', check_same_thread=False)
