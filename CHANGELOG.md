@@ -1,6 +1,15 @@
 Changelog
 ==================
 _v1.1.0_
+- check config values #35
+- branch protection rules #42
+- Ctrl+C does not stop server #3
+- Remove availability logic from TuyaMQTTEntity.status #26
+- add commandline arg for testing tuyaface #43
+- workflow publish to pypi #39
+- Autodiscovery #28
+- add setup.py #38
+- black, flake, mypi, pre-commit #41
 - Ctrl+C does not stop server #3
 - listen for kill signal from mqttdevices
 - device config via topic is rather crude
