@@ -5,19 +5,34 @@ from os import path
 import queue
 import threading
 import logging
-
+import argparse
 import database as database
 
-if True:
-    import tuyaface
-    from tuyaface.tuyaclient import TuyaClient
-else:
-    # for local testing tuyaface
-    import tuya.tuyaface as tuyaface
-    from tuya.tuyaface.tuyaclient import TuyaClient
+parser = argparse.ArgumentParser()
+parser.add_argument("-ttf", help='Test tuyaface [True|False]', type=bool)
+parser.add_argument("-ll", help='Log level [INFO|WARN|ERROR|DEBUG]', type=str)
+args = parser.parse_args()
+
+try:
+    if args.ttf:
+        import tuya.tuyaface as tuyaface
+        from tuya.tuyaface.tuyaclient import TuyaClient
+    else:    
+        import tuyaface
+        from tuyaface.tuyaclient import TuyaClient
+except Exception as ex:
+    print(ex)
 
 loglevel = logging.INFO
-loglevel=logging.DEBUG
+if args.ll == 'INFO':
+    loglevel = logging.INFO
+elif args.ll == 'WARN':
+    loglevel = logging.WARN
+elif args.ll == 'ERROR':
+    loglevel = logging.ERROR
+elif args.ll == 'DEBUG':
+    loglevel = logging.DEBUG
+
 logging.basicConfig(
     format='%(asctime)s %(levelname)-8s (%(threadName)s) [%(name)s] %(message)s', level=loglevel)
 logger = logging.getLogger(__name__)
