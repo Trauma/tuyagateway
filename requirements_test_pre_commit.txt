@@ -1,0 +1,6 @@
+black==19.10b0
+flake8-docstrings==1.5.0
+flake8==3.8.1
+pydocstyle==5.0.2
+pylint==2.4.4
+pylint-strict-informational==0.1
