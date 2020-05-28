@@ -5,16 +5,11 @@ from os import path
 import queue
 import threading
 import logging
-import argparse
+from .cmdline import args
 import database as database
 
-parser = argparse.ArgumentParser()
-parser.add_argument("-ttf", help='Test tuyaface [True|False]', type=bool)
-parser.add_argument("-ll", help='Log level [INFO|WARN|ERROR|DEBUG]', type=str)
-args = parser.parse_args()
-
 try:
-    if args.ttf:
+    if args.ttf: #
         import tuya.tuyaface as tuyaface
         from tuya.tuyaface.tuyaclient import TuyaClient
     else:    
@@ -22,6 +17,7 @@ try:
         from tuyaface.tuyaclient import TuyaClient
 except Exception as ex:
     print(ex)
+    exit(0)
 
 loglevel = logging.INFO
 if args.ll == 'INFO':
@@ -108,12 +104,13 @@ class TuyaMQTTEntity(threading.Thread):
         try:
             self.mqtt_client = mqtt.Client()
             self.mqtt_client.enable_logger()
-            self.mqtt_client.username_pw_set(
-                self.config['MQTT']['user'], self.config['MQTT']['pass'])
+            if self.config['MQTT']['user'] and self.config['MQTT']['pass']:
+                self.mqtt_client.username_pw_set(
+                    self.config['MQTT']['user'], self.config['MQTT']['pass'])
             self.mqtt_client.will_set(
                 f"{self.mqtt_topic}/availability", bool_availability(self.config, False), retain=True)
-            self.mqtt_client.connect(self.config['MQTT']['host'], int(
-                self.config['MQTT']['port']), 60)
+            self.mqtt_client.connect(self.config['MQTT'].get('host','127.0.0.1'), int(
+                self.config['MQTT'].get('port', 1883)), 60)            
             self.mqtt_client.on_connect = self.on_connect
             self.mqtt_client.loop_start()
             self.mqtt_client.on_message = self.on_message
@@ -301,10 +298,11 @@ class TuyaMQTT:
         try:
             self.mqtt_client = mqtt.Client()
             self.mqtt_client.enable_logger()
-            self.mqtt_client.username_pw_set(
-                self.config['MQTT']['user'], self.config['MQTT']['pass'])
-            self.mqtt_client.connect(self.config['MQTT']['host'], int(
-                self.config['MQTT']['port']), 60)
+            if self.config['MQTT']['user'] and self.config['MQTT']['pass']:
+                self.mqtt_client.username_pw_set(
+                    self.config['MQTT']['user'], self.config['MQTT']['pass'])
+            self.mqtt_client.connect(self.config['MQTT'].get('host','127.0.0.1'), int(
+                self.config['MQTT'].get('port', 1883)), 60)
             self.mqtt_client.on_connect = self.on_connect
             self.mqtt_client.loop_start()
             self.mqtt_client.on_message = self.on_message
