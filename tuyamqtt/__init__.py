@@ -168,7 +168,9 @@ class TuyaMQTTEntity(threading.Thread):
     def on_connect(self, client, userdata, flags, return_code):
         """Write something useful."""
         logger.info(
-            f"MQTT Connection state: {connack_string(return_code)} for {self.mqtt_topic}"
+            "MQTT Connection state: %s for %s",
+            connack_string(return_code),
+            self.mqtt_topic,
         )
         client.subscribe(f"{self.mqtt_topic}/#")
         self.mqtt_connected = True
@@ -187,7 +189,7 @@ class TuyaMQTTEntity(threading.Thread):
 
         if availability != self.availability:
             self.availability = availability
-            logger.debug(f"->publish {self.mqtt_topic}/availability")
+            logger.debug("->publish %s/availability", self.mqtt_topic)
             self.mqtt_client.publish(
                 f"{self.mqtt_topic}/availability",
                 bool_availability(self.config, availability),
@@ -309,8 +311,8 @@ class TuyaMQTTEntity(threading.Thread):
                 time.sleep(1)
 
             while not self.command_queue.empty():
-                command, ARGS = self.command_queue.get()
-                command(*ARGS)
+                command, args = self.command_queue.get()
+                command(*args)
 
             time.sleep(self.delay)
 
