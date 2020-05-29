@@ -1,8 +1,8 @@
-![TuyaMQTT](/docs/tuyamqtt_logo.png?raw=true)
+<p align="center"><img alt="TuyaMQTT logo" src="https://github.com/TradeFace/tuyamqtt/blob/development/docs/tuyamqtt_logo.png?raw=true"></p>
 
 Listens on MQTT topic and routes requests to Tuya devices, based on a one to one topic translation. In v1.1 Tuya device configuration can be done with [MQTT Devices](https://github.com/TradeFace/mqttdevices). TuyaMQTT uses [TuyaFace](https://github.com/TradeFace/tuya) to communicate locally (no cloud connection needed) with your tuya devices.
 
-![Network](/docs/network_bg.png?raw=true)
+<p align="center"><img alt="Network" src="https://github.com/TradeFace/tuyamqtt/blob/development/docs/network_bg.png?raw=true"></p>
 
 [Docs](https://github.com/TradeFace/tuyamqtt/wiki)
 ================
