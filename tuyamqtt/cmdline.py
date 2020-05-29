@@ -2,7 +2,6 @@
 import argparse
 
 PARSER = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-PARSER.add_argument("-ttf", help="Test tuyaface [True|False]", type=bool, default=False)
 PARSER.add_argument(
     "-ll", help="Log level [INFO|WARN|ERROR|DEBUG]", type=str, default="INFO"
 )

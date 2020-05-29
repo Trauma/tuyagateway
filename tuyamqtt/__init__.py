@@ -1,6 +1,5 @@
 """TuyaMQTT."""
 import time
-import sys
 import paho.mqtt.client as mqtt
 import json
 import queue
@@ -8,15 +7,8 @@ import threading
 import logging
 from .cmdline import ARGS
 import database
+from tuyaface.tuyaclient import TuyaClient
 
-try:
-    if ARGS.ttf:
-        from tuya.tuyaface.tuyaclient import TuyaClient
-    else:
-        from tuyaface.tuyaclient import TuyaClient
-except Exception as ex:
-    print(ex)
-    sys.exit()
 
 LOGLEVEL = logging.INFO
 if ARGS.ll == "INFO":
