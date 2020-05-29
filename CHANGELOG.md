@@ -1,6 +1,7 @@
 Changelog
 ==================
 _v1.1.0_
+- make readme enduser friendly #44
 - check config values #35
 - branch protection rules #42
 - Ctrl+C does not stop server #3
