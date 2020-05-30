@@ -72,9 +72,10 @@ class TuyaMQTTEntity(threading.Thread):
     delay = 0.1
 
     def __init__(self, key, entity, parent):
-        """Initialize thread."""
+        """Initialize TuyaMQTTEntity."""
         super().__init__()
         self.key = key
+        self.name = key  # Set thread name to key
 
         self.entity = entity
         self.parent = parent
@@ -86,50 +87,38 @@ class TuyaMQTTEntity(threading.Thread):
             self.tuya_discovery = True
             self.mqtt_topic = f"{self.config['General']['topic']}/{entity['deviceid']}"
 
-        self.mqtt_connected = False
         self.availability = False
-        self.client = None
+        self.tuya_client = None
         self.stop = threading.Event()
-        self.mqtt_client = None
+        self.mqtt_client = mqtt.Client()
 
         self.command_queue = queue.Queue()
 
     def mqtt_connect(self):
-        """Write something useful."""
-        try:
-            self.mqtt_client = mqtt.Client()
-            self.mqtt_client.enable_logger()
-            if self.config["MQTT"]["user"] and self.config["MQTT"]["pass"]:
-                self.mqtt_client.username_pw_set(
-                    self.config["MQTT"]["user"], self.config["MQTT"]["pass"]
-                )
-            self.mqtt_client.will_set(
-                f"{self.mqtt_topic}/availability",
-                bool_availability(self.config, False),
-                retain=True,
+        """Create MQTT client."""
+        self.mqtt_client.enable_logger()
+        if self.config["MQTT"]["user"] and self.config["MQTT"]["pass"]:
+            self.mqtt_client.username_pw_set(
+                self.config["MQTT"]["user"], self.config["MQTT"]["pass"]
             )
-            self.mqtt_client.connect(
-                self.config["MQTT"].get("host", "127.0.0.1"),
-                int(self.config["MQTT"].get("port", 1883)),
-                60,
-            )
-            self.mqtt_client.on_connect = self.on_connect
-            self.mqtt_client.loop_start()
-            self.mqtt_client.on_message = self.on_message
+        self.mqtt_client.will_set(
+            f"{self.mqtt_topic}/availability",
+            bool_availability(self.config, False),
+            retain=True,
+        )
+        self.mqtt_client.connect_async(
+            self.config["MQTT"].get("host", "127.0.0.1"),
+            int(self.config["MQTT"].get("port", 1883)),
+            60,
+        )
+        self.mqtt_client.on_connect = self.on_mqtt_connect
+        self.mqtt_client.on_message = self.on_mqtt_message
+        self.mqtt_client.loop_start()
 
-        except Exception as ex:
-            logger.warning(
-                "(%s) Failed to connect to MQTT Broker %s", self.entity["ip"], ex
-            )
-            self.mqtt_connected = False
-
-    def on_message(self, client, userdata, message):
-        """Write something useful."""
+    def on_mqtt_message(self, client, userdata, message):
+        """MQTT message callback, executed in the MQTT client's context."""
         if message.topic[-4:] == "kill":
-            self.client.stop_client()
-            self.stop.set()
-            self.join()
-            return
+            self.stop_entity()
 
         if message.topic[-7:] != "command":
             return
@@ -157,15 +146,14 @@ class TuyaMQTTEntity(threading.Thread):
             self._set_via(dps_key, "mqtt")
         self.set_state(dps_key, payload_bool(message.payload))
 
-    def on_connect(self, client, userdata, flags, return_code):
-        """Write something useful."""
+    def on_mqtt_connect(self, client, userdata, flags, return_code):
+        """MQTT connect callback, executed in the MQTT client's context."""
         logger.info(
             "MQTT Connection state: %s for %s",
             connack_string(return_code),
             self.mqtt_topic,
         )
         client.subscribe(f"{self.mqtt_topic}/#")
-        self.mqtt_connected = True
 
     def _set_dps(self, dps_key, dps_value: str):
 
@@ -248,21 +236,21 @@ class TuyaMQTTEntity(threading.Thread):
             )
             self.mqtt_client.publish(f"{self.mqtt_topic}/attributes", json.dumps(attr))
 
-    def on_status(self, data: dict):
-        """Write something useful."""
+    def on_tuya_status(self, data: dict):
+        """Tuya status message callback."""
         # TODO: via is broken. When state command comes in from mqtt via should be mqtt
         self._process_data(data, "tuya")
 
-    def on_connection(self, connected: bool):
-        """Write something useful."""
+    def on_tuya_connected(self, connected: bool):
+        """Tuya connection state updated."""
         self._set_availability(connected)
         # We're in TuyaClient's context, queue a call to tuyaclient.status
-        self.command_queue.put((self.status, ("mqtt", True)))
+        self.command_queue.put((self.request_status, ("mqtt", True)))
 
-    def status(self, via: str = "tuya", force_mqtt: bool = False):
-        """Write something useful."""
+    def request_status(self, via: str = "tuya", force_mqtt: bool = False):
+        """Poll Tuya device for status."""
         try:
-            data = self.client.status()
+            data = self.tuya_client.status()
 
             if not data:
                 return
@@ -273,9 +261,9 @@ class TuyaMQTTEntity(threading.Thread):
             logger.exception("(%s) status request error", self.entity["ip"])
 
     def set_state(self, dps_item, payload):
-        """Write something useful."""
+        """Set state of Tuya device."""
         try:
-            result = self.client.set_state(payload, dps_item)
+            result = self.tuya_client.set_state(payload, dps_item)
             if not result:
                 logger.error(
                     "(%s) set_state request on topic %s failed",
@@ -292,63 +280,64 @@ class TuyaMQTTEntity(threading.Thread):
             )
 
     def run(self):
-        """Write something useful."""
-        self.client = TuyaClient(self.entity, self.on_status, self.on_connection)
-        self.client.start()
+        """Tuya MQTTEntity main loop."""
+        self.mqtt_connect()
+        self.tuya_client = TuyaClient(
+            self.entity, self.on_tuya_status, self.on_tuya_connected
+        )
+        self.tuya_client.start()
 
-        while True:
-
-            if not self.mqtt_connected:
-                self.mqtt_connect()
-                time.sleep(1)
-
+        while not self.stop.is_set():
             while not self.command_queue.empty():
                 command, args = self.command_queue.get()
                 command(*args)
 
             time.sleep(self.delay)
 
+    def stop_entity(self):
+        """Shut down MQTT client, TuyaClient and worker thread."""
+        logger.info("Stopping TuyaMQTTEntity %s", self.name)
+        self.tuya_client.stop_client()
+        self.mqtt_client.loop_stop()
+        self.stop.set()
+        self.join()
+
 
 class TuyaMQTT:
-    """Write something useful."""
+    """Manages a set of TuyaMQTTEntities."""
 
     delay = 0.1
     config = []
     dict_entities = {}
+    worker_threads = {}
 
     def __init__(self, config):
-        """Write something useful."""
+        """Initialize TuyaMQTTEntity."""
         self.config = config
         # TODO: set fixed, not need to be dynamic here
         self.mqtt_topic = config["General"]["topic"]
-        self.mqtt_connected = False
-        self.mqtt_client = None
+        self.mqtt_client = mqtt.Client()
 
         self.database = database
         self.database.setup()
 
     def mqtt_connect(self):
-        """Write something useful."""
-        try:
-            self.mqtt_client = mqtt.Client()
-            self.mqtt_client.enable_logger()
-            if self.config["MQTT"]["user"] and self.config["MQTT"]["pass"]:
-                self.mqtt_client.username_pw_set(
-                    self.config["MQTT"]["user"], self.config["MQTT"]["pass"]
-                )
-            self.mqtt_client.connect(
-                self.config["MQTT"].get("host", "127.0.0.1"),
-                int(self.config["MQTT"].get("port", 1883)),
-                60,
+        """Create MQTT client."""
+        self.mqtt_client.enable_logger()
+        if self.config["MQTT"]["user"] and self.config["MQTT"]["pass"]:
+            self.mqtt_client.username_pw_set(
+                self.config["MQTT"]["user"], self.config["MQTT"]["pass"]
             )
-            self.mqtt_client.on_connect = self.on_connect
-            self.mqtt_client.loop_start()
-            self.mqtt_client.on_message = self.on_message
-        except Exception:
-            logger.info("Failed to connect to MQTT Broker")
-            self.mqtt_connected = False
+        self.mqtt_client.connect_async(
+            self.config["MQTT"].get("host", "127.0.0.1"),
+            int(self.config["MQTT"].get("port", 1883)),
+            60,
+        )
+        self.mqtt_client.on_connect = self.on_mqtt_connect
+        self.mqtt_client.on_message = self.on_mqtt_message
+        self.mqtt_client.loop_start()
 
-    def on_connect(self, client, userdata, flags, return_code):
+    def on_mqtt_connect(self, client, userdata, flags, return_code):
         """Write something useful."""
         logger.info(
             "MQTT Connection state: %s for topic %s",
@@ -356,14 +345,13 @@ class TuyaMQTT:
             self.mqtt_topic,
         )
         client.subscribe(f"{self.mqtt_topic}/#")
-        self.mqtt_connected = True
 
-    def write_entity(self):
-        """Write something useful."""
+    def write_entities(self):
+        """Write entities to database."""
         self.database.upsert_entities(self.dict_entities)
 
     def read_entity(self):
-        """Write something useful."""
+        """Read entities from database."""
         self.dict_entities = self.database.get_entities()
 
     def add_entity_dict_topic(self, entity_raw, retain):
@@ -397,7 +385,7 @@ class TuyaMQTT:
         return key
 
     def get_entity(self, key):
-        """Write something useful."""
+        """Get entity data for key."""
         return self.dict_entities[key]
 
     def set_entity_dps_item(self, key, dps, value):
@@ -410,8 +398,8 @@ class TuyaMQTT:
         self.dict_entities[key]["attributes"]["via"][dps] = value
         self.database.update_entity(self.dict_entities[key])
 
-    def on_message(self, client, userdata, message):
-        """Write something useful."""
+    def on_mqtt_message(self, client, userdata, message):
+        """MQTT message callback, executed in the MQTT client's context."""
         topic_parts = message.topic.split("/")
 
         if topic_parts[1] == "discovery":
@@ -452,31 +440,29 @@ class TuyaMQTT:
             entity = self.get_entity(key)
 
             thread_object = TuyaMQTTEntity(key, entity, self)
-            thread_object.setName(key)
             thread_object.start()
+            self.worker_threads[key] = thread_object
 
     def main_loop(self):
         """Send / receive from tuya devices."""
-        self.read_entity()
+        try:
+            self.mqtt_connect()
+            self.read_entity()
 
-        tpool = []
-        for key, entity in self.dict_entities.items():
-            thread_object = TuyaMQTTEntity(key, entity, self)
-            thread_object.setName(key)
-            thread_object.start()
-            tpool.append(thread_object)
+            for key, entity in self.dict_entities.items():
+                thread_object = TuyaMQTTEntity(key, entity, self)
+                thread_object.start()
+                self.worker_threads[key] = thread_object
 
-        time_run_save = 0
+            time_run_save = 0
 
-        while True:
+            while True:
+                if time.time() > time_run_save:
+                    self.write_entities()
+                    time_run_save = time.time() + 300
 
-            if not self.mqtt_connected:
-                self.mqtt_connect()
-                time.sleep(2)
-                continue
-
-            if time.time() > time_run_save:
-                self.write_entity()
-                time_run_save = time.time() + 300
-
-            time.sleep(self.delay)
+                time.sleep(self.delay)
+        except KeyboardInterrupt:
+            for key, thread in self.worker_threads.items():
+                thread.stop_entity()
+                thread.join()
