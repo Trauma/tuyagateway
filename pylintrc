@@ -47,8 +47,7 @@ disable=
   too-many-boolean-expressions,
   unused-argument,
   wrong-import-order,
-  broad-except,
-  import-error
+  broad-except
 enable=
   use-symbolic-message-instead
 
