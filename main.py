@@ -31,7 +31,7 @@ if __name__ == "__main__":
     if ARGS.host:
         config["MQTT"]["host"] = ARGS.host
     if ARGS.port:
-        config["MQTT"]["port"] = ARGS.port
+        config["MQTT"]["port"] = str(ARGS.port)
     if ARGS.user:
         config["MQTT"]["user"] = ARGS.user
     if ARGS.password:
