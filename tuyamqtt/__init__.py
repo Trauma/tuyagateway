@@ -290,7 +290,9 @@ class TuyaMQTTEntity(threading.Thread):
     def run(self):
         """Tuya MQTTEntity main loop."""
         self.mqtt_connect()
-        self.tuya_client = TuyaClient(self.entity, self.on_tuya_status, self.on_tuya_connected)
+        self.tuya_client = TuyaClient(
+            self.entity, self.on_tuya_status, self.on_tuya_connected
+        )
         self.tuya_client.start()
 
         while not self.stop.is_set():
