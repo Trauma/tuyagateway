@@ -1,4 +1,4 @@
-<p align="center"><img widht="50%" alt="TuyaMQTT logo" src="https://github.com/TradeFace/tuyamqtt/blob/development/docs/tuyamqtt_logo.png?raw=true"></p>
+<p align="center"><img width="50%" alt="TuyaMQTT logo" src="https://github.com/TradeFace/tuyamqtt/blob/development/docs/tuyamqtt_logo.png?raw=true"></p>
 
 Listens on MQTT topic and routes requests to Tuya devices, based on a one to one topic translation. In v1.1 Tuya device configuration can be done with [GismoCaster](https://github.com/TradeFace/gismocaster). TuyaMQTT uses [TuyaFace](https://github.com/TradeFace/tuya) to communicate locally (no cloud connection needed) with your tuya devices.
 
