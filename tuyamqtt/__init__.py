@@ -130,6 +130,7 @@ class TuyaMQTTEntity(threading.Thread):
             message.retain,
             str(message.payload.decode("utf-8")),
         )
+        # return
 
         # We're in the MQTT client's context, queue a call to handle the message
         self.command_queue.put((self._handle_mqtt_message, (message,)))
@@ -418,6 +419,9 @@ class TuyaMQTT:
         if message.payload != b"":
             entity = json.loads(message.payload)
             entity["attributes"] = {"dps": {}, "via": {}}
+            for data_point in entity["dps"]:
+                entity["attributes"]["dps"][str(data_point.key)] = None
+                entity["attributes"]["via"][str(data_point.key)] = "mqtt"
             entity["topic_config"] = False
 
         key = self.add_entity_dict_discovery(topic_parts[2], entity)

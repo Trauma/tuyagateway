@@ -28,7 +28,7 @@ v1.2.1
 
 Code quality / enabling pre-commit hooks
 -----------------
-```
+```bash
 git clone https://github.com/<username>/tuyamqtt.git tuyamqtt_dev
 cd tuyamqtt_dev
 python3 -m venv venv
@@ -36,4 +36,10 @@ source venv/bin/activate
 pip3 install -r requirements.txt
 pip3 install -r requirements_test.txt
 pre-commit install
+```
+
+current commit
+--------------
+```bash
+git log -n 1
 ```

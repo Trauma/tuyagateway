@@ -1,6 +1,9 @@
 Changelog
 ==================
 _v1.1.0_
+- Multiple threads for same IP #57
+- Fix pre-commit hooks #56
+- set dps config autodiscover #36
 - make readme enduser friendly #44
 - check config values #35
 - branch protection rules #42
