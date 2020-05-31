@@ -163,6 +163,8 @@ class TuyaMQTTEntity(threading.Thread):
 
     def _set_via(self, dps_key, via: str):
 
+        if via == self.entity["attributes"]["via"][dps_key]:
+            return
         self.entity["attributes"]["via"][dps_key] = via
         self.parent.set_entity_via_item(self.key, dps_key, via)
 
@@ -183,14 +185,15 @@ class TuyaMQTTEntity(threading.Thread):
 
         for dps_key, dps_value in data["dps"].items():
 
-            if dps_key not in self.entity["attributes"]["dps"]:
-                self._set_dps(dps_key, None)
             logger.debug(
                 "(%s) _process_data %s : %s", self.entity["ip"], dps_key, dps_value
             )
 
+            if dps_key not in self.entity["attributes"]["dps"]:
+                self._set_dps(dps_key, None)
             if dps_key not in self.entity["attributes"]["via"]:
                 self._set_via(dps_key, "init")
+
             if dps_value != self.entity["attributes"]["dps"][dps_key] or force_mqtt:
                 changed = True
                 self._set_dps(dps_key, dps_value)
@@ -206,8 +209,7 @@ class TuyaMQTTEntity(threading.Thread):
                     bool_payload(self.config, dps_value),
                 )
 
-                if via != self.entity["attributes"]["via"][dps_key]:
-                    self._set_via(dps_key, via)
+                self._set_via(dps_key, via)
 
                 attr_item = {
                     "dps": self.entity["attributes"]["dps"][dps_key],
@@ -237,10 +239,12 @@ class TuyaMQTTEntity(threading.Thread):
             )
             self.mqtt_client.publish(f"{self.mqtt_topic}/attributes", json.dumps(attr))
 
-    def on_tuya_status(self, data: dict):
+    def on_tuya_status(self, data: dict, status_from: str):
         """Tuya status message callback."""
-        # TODO: via is broken. When state command comes in from mqtt via should be mqtt
-        self._process_data(data, "tuya")
+        via = "tuya"
+        if status_from == "command":
+            via = "mqtt"
+        self._process_data(data, via)
 
     def on_tuya_connected(self, connected: bool):
         """Tuya connection state updated."""
@@ -252,12 +256,9 @@ class TuyaMQTTEntity(threading.Thread):
         """Poll Tuya device for status."""
         try:
             data = self.tuya_client.status()
-
             if not data:
                 return
-
             self._process_data(data, via, force_mqtt)
-
         except Exception:
             logger.exception("(%s) status request error", self.entity["ip"])
 
