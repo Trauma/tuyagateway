@@ -82,10 +82,10 @@ class TuyaMQTTEntity(threading.Thread):
         self.config = self.parent.config
 
         self.tuya_discovery = False
-        self.mqtt_topic = f"{self.config['General']['topic']}/{entity['protocol']}/{entity['deviceid']}/{entity['localkey']}/{entity['ip']}"
+        self.mqtt_topic = f"tuya/{entity['protocol']}/{entity['deviceid']}/{entity['localkey']}/{entity['ip']}"
         if "tuya_discovery" in entity and entity["tuya_discovery"]:
             self.tuya_discovery = True
-            self.mqtt_topic = f"{self.config['General']['topic']}/{entity['deviceid']}"
+            self.mqtt_topic = f"tuya/{entity['deviceid']}"
 
         self.availability = False
         self.tuya_client = None
@@ -314,8 +314,8 @@ class TuyaMQTT:
     def __init__(self, config):
         """Initialize TuyaMQTTEntity."""
         self.config = config
-        # TODO: set fixed, not need to be dynamic here
-        self.mqtt_topic = config["General"]["topic"]
+
+        self.mqtt_topic = "tuya"
         self.mqtt_client = mqtt.Client()
 
         self.database = database
@@ -357,7 +357,6 @@ class TuyaMQTT:
     def add_entity_dict_topic(self, entity_raw, retain):
         """Write something useful."""
         entity_parts = entity_raw.split("/")
-
         key = entity_parts[2]
 
         if key in self.dict_entities or entity_parts[4] in self.dict_entities:
@@ -370,6 +369,7 @@ class TuyaMQTT:
             "ip": entity_parts[4],
             "attributes": {"dps": {}, "via": {}},
             "hass_discover": False,
+            "topic_config": True,
         }
 
         self.dict_entities[key] = entity
@@ -404,6 +404,12 @@ class TuyaMQTT:
         self.dict_entities[key]["attributes"]["via"][dps] = value
         self.database.update_entity(self.dict_entities[key])
 
+    def _start_entity_thread(self, key, entity):
+        thread_object = TuyaMQTTEntity(key, entity, self)
+        thread_object.setName(f"tuyamqtt_{key}")
+        thread_object.start()
+        self.worker_threads[key] = thread_object
+
     def _handle_discover_message(self, message):
 
         topic_parts = message.topic.split("/")
@@ -412,6 +418,7 @@ class TuyaMQTT:
         if message.payload != b"":
             entity = json.loads(message.payload)
             entity["attributes"] = {"dps": {}, "via": {}}
+            entity["topic_config"] = False
 
         key = self.add_entity_dict_discovery(topic_parts[2], entity)
         if not key:
@@ -423,15 +430,11 @@ class TuyaMQTT:
             message.topic,
             message.retain,
         )
-        thread_object = TuyaMQTTEntity(key, entity, self)
-        thread_object.setName(f"tuyamqtt_{key}")
-        thread_object.start()
-        self.worker_threads[key] = thread_object
+        self._start_entity_thread(key, entity)
 
     def _handle_command_message(self, message):
 
         key = self.add_entity_dict_topic(message.topic, message.retain)
-
         if not key:
             return
 
@@ -442,11 +445,7 @@ class TuyaMQTT:
             message.retain,
         )
         entity = self.get_entity(key)
-
-        thread_object = TuyaMQTTEntity(key, entity, self)
-        thread_object.setName(f"tuyamqtt_{key}")
-        thread_object.start()
-        self.worker_threads[key] = thread_object
+        self._start_entity_thread(key, entity)
 
     def on_mqtt_message(self, client, userdata, message):
         """MQTT message callback, executed in the MQTT client's context."""
@@ -459,7 +458,6 @@ class TuyaMQTT:
         # will be removed eventually
         if message.topic[-7:] == "command":
             self._handle_command_message(message)
-            return
 
     def main_loop(self):
         """Send / receive from tuya devices."""
@@ -468,10 +466,7 @@ class TuyaMQTT:
             self.read_entity()
 
             for key, entity in self.dict_entities.items():
-                thread_object = TuyaMQTTEntity(key, entity, self)
-                thread_object.setName(f"tuyamqtt_{key}")
-                thread_object.start()
-                self.worker_threads[key] = thread_object
+                self._start_entity_thread(key, entity)
 
             time_run_save = 0
 
