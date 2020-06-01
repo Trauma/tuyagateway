@@ -117,8 +117,6 @@ class TuyaMQTTEntity(threading.Thread):
 
     def on_mqtt_message(self, client, userdata, message):
         """MQTT message callback, executed in the MQTT client's context."""
-        if message.topic[-4:] == "kill":
-            self.stop_entity()
 
         if message.topic[-7:] != "command":
             return
@@ -130,7 +128,6 @@ class TuyaMQTTEntity(threading.Thread):
             message.retain,
             str(message.payload.decode("utf-8")),
         )
-        # return
 
         # We're in the MQTT client's context, queue a call to handle the message
         self.command_queue.put((self._handle_mqtt_message, (message,)))
@@ -382,13 +379,6 @@ class TuyaMQTT:
         """Write something useful."""
         if key in self.dict_entities or (entity and entity["ip"] in self.dict_entities):
             self.database.delete_entity(self.dict_entities[key])
-            # kill the thread
-            if key in self.worker_threads:
-                self.worker_threads[key].stop_entity()
-                self.worker_threads[key].join()
-            if not entity:
-                return None
-
         self.dict_entities[key] = entity
         return key
 
@@ -413,21 +403,11 @@ class TuyaMQTT:
         self.worker_threads[key] = thread_object
 
     def _handle_discover_message(self, message):
+        """Handle discover message from GismoCaster.
 
-        topic_parts = message.topic.split("/")
-
-        entity = None
-        if message.payload != b"":
-            entity = json.loads(message.payload)
-            entity["attributes"] = {"dps": {}, "via": {}}
-            for data_point in entity["dps"]:
-                entity["attributes"]["dps"][str(data_point.key)] = None
-                entity["attributes"]["via"][str(data_point.key)] = "mqtt"
-            entity["topic_config"] = False
-
-        key = self.add_entity_dict_discovery(topic_parts[2], entity)
-        if not key:
-            return
+        If a discover message arrives we kill the thread for the
+        device (if any), and restart with new config (if any)
+        """
 
         logger.info(
             "discovery message received %s topic %s retained %s ",
@@ -435,6 +415,29 @@ class TuyaMQTT:
             message.topic,
             message.retain,
         )
+
+        topic_parts = message.topic.split("/")
+
+        key = topic_parts[2]
+        # kill the thread
+        if key in self.worker_threads:
+            self.worker_threads[key].stop_entity()
+            self.worker_threads[key].join()
+
+        entity = None
+        if message.payload == b"":
+            # nothing to do
+            return
+
+        entity = json.loads(message.payload)
+        entity["attributes"] = {"dps": {}, "via": {}}
+        for data_point in entity["dps"]:
+            entity["attributes"]["dps"][str(data_point.key)] = None
+            entity["attributes"]["via"][str(data_point.key)] = "mqtt"
+        entity["topic_config"] = False
+
+        key = self.add_entity_dict_discovery(topic_parts[2], entity)
+
         self._start_entity_thread(key, entity)
 
     def _handle_command_message(self, message):
