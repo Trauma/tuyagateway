@@ -142,8 +142,6 @@ def upsert_entity(entity: dict):
 
 def upsert_entities(entities: dict):
 
-    print(entities)
-
     if False in set(map(upsert_entity, entities.values())):
         return False
     return True

@@ -343,7 +343,8 @@ class TuyaMQTT:
         entity_parts = entity_raw.split("/")
         key = entity_parts[2]
 
-        if key in self.dict_entities or entity_parts[4] in self.dict_entities:
+        entity_keys = self._find_entity_keys(key, entity_parts[4])
+        if len(entity_keys) != 0:
             return None
 
         entity = {
@@ -359,19 +360,13 @@ class TuyaMQTT:
         self.database.insert_entity(entity)
         return key
 
-    def add_entity_dict_discovery(self, key: str, entity: dict):
-        """Write something useful."""
-        if key in self.dict_entities or (entity and entity["ip"] in self.dict_entities):
-            self.database.delete_entity(self.dict_entities[key])
-        self.dict_entities[key] = entity
-        return key
-
     def get_entity(self, key):
         """Get entity data for key."""
         return self.dict_entities[key]
 
     def set_entity_dps_item(self, key, dps, value):
         """Write something useful."""
+        # print(self.dict_entities)
         self.dict_entities[key]["attributes"]["dps"][dps] = value
         self.database.update_entity(self.dict_entities[key])
 
@@ -386,17 +381,23 @@ class TuyaMQTT:
         thread_object.start()
         self.worker_threads[key] = thread_object
 
+    def _find_entity_keys(self, key: str, ip_address=None):
+
+        keys = []
+        for ent_key, item in self.dict_entities.items():
+            if item["ip"] == ip_address:
+                keys.append(ent_key)
+
+        if key in self.dict_entities:
+            keys.append(key)
+
+        return keys
+
     def _handle_discover_message(self, message):
         """Handle discover message from GismoCaster.
 
         If a discover message arrives we kill the thread for the
         device (if any), and restart with new config (if any)
-
-        - find and kill running threads for id or ip
-        - check topic id against payload id
-        - check secret exists, ip exists
-        - set def protocol if no value in payload
-        - start new thread for id if message not None
         """
 
         logger.info(
@@ -407,26 +408,46 @@ class TuyaMQTT:
         )
 
         topic_parts = message.topic.split("/")
-
         key = topic_parts[2]
-        # kill the thread
-        if key in self.worker_threads:
-            self.worker_threads[key].stop_entity()
-            self.worker_threads[key].join()
 
         entity = None
+        ip_adress = None
+        if message.payload != b"":
+            entity = json.loads(message.payload)
+            if "localkey" not in entity:
+                return
+            if "deviceid" not in entity:
+                return
+            if entity["deviceid"] != key:
+                return
+            if "ip" not in entity:
+                return
+            ip_adress = entity["ip"]
+            if "protocol" not in entity:
+                entity["protocol"] = "3.3"
+
+        entity_keys = self._find_entity_keys(key, ip_adress)
+
+        for entity_key in entity_keys:
+            self.database.delete_entity(self.dict_entities[entity_key])
+            # this breaks stuff
+            # del self.dict_entities[entity_key]
+            if entity_key in self.worker_threads:
+                try:
+                    self.worker_threads[entity_key].stop_entity()
+                    self.worker_threads[entity_key].join()
+                except Exception:
+                    pass
+
         if message.payload == b"":
-            # nothing to do
             return
 
-        entity = json.loads(message.payload)
         entity["attributes"] = {"dps": {}, "via": {}}
         for data_point in entity["dps"]:
             entity["attributes"]["dps"][str(data_point["key"])] = None
             entity["attributes"]["via"][str(data_point["key"])] = "mqtt"
         entity["topic_config"] = False
-
-        key = self.add_entity_dict_discovery(topic_parts[2], entity)
+        self.dict_entities[key] = entity
 
         self._start_entity_thread(key, entity)
 
@@ -449,10 +470,12 @@ class TuyaMQTT:
         """MQTT message callback, executed in the MQTT client's context."""
         topic_parts = message.topic.split("/")
 
-        if topic_parts[1] == "discovery":
-            self._handle_discover_message(message)
-            return
-
+        try:
+            if topic_parts[1] == "discovery":
+                self._handle_discover_message(message)
+                return
+        except Exception:
+            pass
         # will be removed eventually
         if message.topic[-7:] == "command":
             self._handle_command_message(message)
