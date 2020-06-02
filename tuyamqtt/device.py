@@ -2,6 +2,27 @@
 import json
 
 
+def _validate_data_point_config(data_point: dict) -> bool:
+
+    if data_point["type_value"] not in ["bool", "str", "int", "float"]:
+        return False
+
+    if data_point["type_value"] in ["str", "int", "float"] and (
+        "maximal" not in data_point or "minimal" not in data_point
+    ):
+        return False
+    # TODO: check min / max type and min < max
+    return True
+
+
+def payload_bool(payload: str):
+    """Convert string to boolean."""
+    str_payload = str(payload.decode("utf-8"))
+    if str_payload in ["True", "true", "TRUE", "ON", "On", "on", "1"]:
+        return True
+    return False
+
+
 class Device:
     """Datacontainer for device."""
 
@@ -15,6 +36,9 @@ class Device:
     mqtt_topic = None
     pref_status_cmd = 10
     _topic_parts = []
+    _input_santize = {}
+    _output_type = "bool"
+    _data_point_payload = {}
 
     def __init__(self, message, topic_config=False):
         """Initialize Device."""
@@ -37,6 +61,7 @@ class Device:
             return
         device = json.loads(message)
 
+        # validate device
         if "localkey" not in device:
             return
         self.localkey = device["localkey"]
@@ -54,10 +79,11 @@ class Device:
             self._set_pref_status_cmd(device["pref_status_cmd"])
 
         for data_point in device["dps"]:
-            self.attributes["dps"][str(data_point["key"])] = None
-            self.attributes["via"][str(data_point["key"])] = "mqtt"
-
-        # TODO check dp config
+            self.attributes["dps"][int(data_point["key"])] = None
+            self.attributes["via"][int(data_point["key"])] = "mqtt"
+            if _validate_data_point_config(data_point):
+                self._input_santize[int(data_point["key"])] = data_point
+                self._output_type = data_point["type_value"]
 
         self.is_valid = True
 
@@ -83,7 +109,48 @@ class Device:
         if not self.topic_config:
             self.mqtt_topic = f"tuya/{self.key}"
 
-    def get_legacy_device(self):
+    def get_tuya_dp_payload(self, data_point_key: int):
+        """Get the sanitized Tuya command message payload for data point."""
+        return self._data_point_payload[data_point_key]
+
+    def get_mqtt_dp_data(self, data_point_key: int):
+        """Get the sanitized MQTT reply message payload for data point."""
+
+    def set_tuya_message(self, message):
+        """Set the Tuya reply message payload."""
+
+    def set_mqtt_message(self, message):
+        """Set the MQTT command message payload."""
+        # will give problems with topics without dp key
+        # e.g. /<topic>/command which is invalid but would pass the filter
+        entity_parts = message.topic.split("/")
+        data_point_key = int(entity_parts[len(entity_parts) - 2])
+
+        if data_point_key not in self.attributes["dps"]:
+            self.attributes["dps"][data_point_key] = None
+        if data_point_key not in self.attributes["via"]:
+            self.attributes["via"][data_point_key] = "mqtt"
+
+        self._data_point_payload[data_point_key] = self._sanitize_input(
+            data_point_key, message.payload
+        )
+
+    def _sanitize_input(self, data_point_key: int, payload):
+        input_santize = self._input_santize[data_point_key]
+        if input_santize["type_value"] == "bool":
+            return payload_bool(payload)
+        if input_santize["type_value"] == "str":
+            tmp_payload = payload
+            if len(payload) > input_santize["maximal"]:
+                tmp_payload = payload[: input_santize["maximal"]]
+            return tmp_payload
+        if input_santize["type_value"] == "int":
+            tmp_payload = int(payload)
+        elif input_santize["type_value"] == "float":
+            tmp_payload = float(payload)
+        return max(input_santize["minimal"], min(tmp_payload, input_santize["maximal"]))
+
+    def get_legacy_device(self) -> dict:
         """Support for old structure."""
         return {
             "protocol": self.protocol,

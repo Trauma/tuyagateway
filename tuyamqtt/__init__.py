@@ -23,16 +23,6 @@ def connack_string(state):
     return states[state]
 
 
-def payload_bool(payload: str):
-    """Convert string to boolean."""
-    str_payload = str(payload.decode("utf-8"))
-    if str_payload in ("True", "ON", "1"):
-        return True
-    if str_payload in ("False", "OFF", "0"):
-        return False
-    return payload
-
-
 def bool_payload(config: dict, boolvalue: bool):
     """Convert boolean to payload value."""
     # TODO: get from entity
@@ -115,19 +105,13 @@ class TuyaMQTTEntity(threading.Thread):
 
         # will give problems with topics without dp key
         # e.g. /<topic>/command which is invalid but would pass the filter
-        # TODO: check dp against GC config if available
-        # TODO: test if topic dp is numeric and > 0 and < 255
+        self.entity.set_mqtt_message(message)
+
         entity_parts = message.topic.split("/")
-        dps_key = str(entity_parts[len(entity_parts) - 2])
+        data_point_key = int(entity_parts[len(entity_parts) - 2])
 
-        if dps_key not in self.entity.attributes["dps"]:
-            self._set_dps(dps_key, None)
-        if dps_key not in self.entity.attributes["via"]:
-            self._set_via(dps_key, "mqtt")
-
-        # TODO: check payload against GC config if available, defaults to bool
-
-        self.set_state(dps_key, payload_bool(message.payload))
+        payload = self.entity.get_tuya_dp_payload(data_point_key)
+        self.set_state(data_point_key, payload)
 
     def on_mqtt_connect(self, client, userdata, flags, return_code):
         """MQTT connect callback, executed in the MQTT client's context."""
@@ -137,22 +121,6 @@ class TuyaMQTTEntity(threading.Thread):
             self.mqtt_topic,
         )
         client.subscribe(f"{self.mqtt_topic}/#")
-
-    # TODO: move all data processing functions to Device
-    def _set_dps(self, dps_key, dps_value: str):
-
-        self.entity.attributes["dps"][dps_key] = dps_value
-        self.parent.set_entity_dps_item(self.key, dps_key, dps_value)
-
-    def _set_via(self, dps_key, via: str):
-
-        if dps_key not in self.entity.attributes["via"]:
-            self.entity.attributes["via"][dps_key] = None
-
-        if via == self.entity.attributes["via"][dps_key]:
-            return
-        self.entity.attributes["via"][dps_key] = via
-        self.parent.set_entity_via_item(self.key, dps_key, via)
 
     def _set_availability(self, availability: bool):
 
@@ -165,41 +133,49 @@ class TuyaMQTTEntity(threading.Thread):
                 retain=True,
             )
 
+    def on_tuya_connected(self, connected: bool):
+        """Tuya connection state updated."""
+        self._set_availability(connected)
+        # We're in TuyaClient's context, queue a call to tuyaclient.status
+        self.command_queue.put((self.request_status, ("mqtt", True)))
+
+    # TODO: move all data processing functions to Device
     def _process_data(self, data: dict, via: str, force_mqtt: bool = False):
 
         changed = force_mqtt
 
         for dps_key, dps_value in data["dps"].items():
+            data_point_key = int(dps_key)
 
             logger.debug(
                 "(%s) _process_data %s : %s", self.entity.ip_address, dps_key, dps_value
             )
 
-            if dps_key not in self.entity.attributes["dps"]:
-                self._set_dps(dps_key, None)
-            if dps_key not in self.entity.attributes["via"]:
-                self._set_via(dps_key, "init")
+            if data_point_key not in self.entity.attributes["dps"]:
+                self.entity.attributes["dps"][data_point_key] = None
+            if data_point_key not in self.entity.attributes["via"]:
+                self.entity.attributes["via"][data_point_key] = "init"
 
-            if dps_value != self.entity.attributes["dps"][dps_key] or force_mqtt:
+            if dps_value != self.entity.attributes["dps"][data_point_key] or force_mqtt:
                 changed = True
-                self._set_dps(dps_key, dps_value)
+                self.entity.attributes["dps"][data_point_key] = dps_value
 
                 logger.debug(
                     "(%s) ->publish %s/%s/state",
                     self.entity.ip_address,
                     self.mqtt_topic,
-                    dps_key,
+                    data_point_key,
                 )
                 self.mqtt_client.publish(
-                    f"{self.mqtt_topic}/{dps_key}/state",
+                    f"{self.mqtt_topic}/{data_point_key}/state",
                     bool_payload(self.config, dps_value),
                 )
 
-                self._set_via(dps_key, via)
+                self.entity.attributes["via"][data_point_key] = via
 
                 attr_item = {
-                    "dps": self.entity.attributes["dps"][dps_key],
-                    "via": self.entity.attributes["via"][dps_key],
+                    "dps": self.entity.attributes["dps"][data_point_key],
+                    "via": self.entity.attributes["via"][data_point_key],
                     "time": time.time(),
                 }
 
@@ -207,10 +183,11 @@ class TuyaMQTTEntity(threading.Thread):
                     "(%s) ->publish %s/%s/attributes",
                     self.entity.ip_address,
                     self.mqtt_topic,
-                    dps_key,
+                    data_point_key,
                 )
                 self.mqtt_client.publish(
-                    f"{self.mqtt_topic}/{dps_key}/attributes", json.dumps(attr_item)
+                    f"{self.mqtt_topic}/{data_point_key}/attributes",
+                    json.dumps(attr_item),
                 )
 
         if changed:
@@ -230,15 +207,10 @@ class TuyaMQTTEntity(threading.Thread):
     def on_tuya_status(self, data: dict, status_from: str):
         """Tuya status message callback."""
         via = "tuya"
+        # this is never true :/
         if status_from == "command":
             via = "mqtt"
         self._process_data(data, via)
-
-    def on_tuya_connected(self, connected: bool):
-        """Tuya connection state updated."""
-        self._set_availability(connected)
-        # We're in TuyaClient's context, queue a call to tuyaclient.status
-        self.command_queue.put((self.request_status, ("mqtt", True)))
 
     def request_status(self, via: str = "tuya", force_mqtt: bool = False):
         """Poll Tuya device for status."""
@@ -250,7 +222,7 @@ class TuyaMQTTEntity(threading.Thread):
         except Exception:
             logger.exception("(%s) status request error", self.entity.ip_address)
 
-    def set_state(self, dps_item, payload):
+    def set_state(self, dps_item: int, payload):
         """Set state of Tuya device."""
         try:
             result = self.tuya_client.set_state(payload, dps_item)
@@ -308,6 +280,7 @@ class TuyaMQTT:
         self.mqtt_topic = "tuya"
         self.mqtt_client = mqtt.Client()
 
+        # TODO remove db
         self.database = database
         self.database.setup()
 
@@ -350,7 +323,7 @@ class TuyaMQTT:
 
     def add_entity_dict_topic(self, device):
         """Write something useful."""
-
+        print("hallo")
         entity_keys = self._find_entity_keys(device.key, device.ip_address)
         if len(entity_keys) != 0:
             return None
@@ -358,21 +331,6 @@ class TuyaMQTT:
         self.dict_entities[device.key] = device
         self.database.insert_entity(device.get_legacy_device())
         return device.key
-
-    def get_entity(self, key):
-        """Get entity data for key."""
-        return self.dict_entities[key]
-
-    def set_entity_dps_item(self, key, dps, value):
-        """Write something useful."""
-        # print(self.dict_entities)
-        self.dict_entities[key].attributes["dps"][dps] = value
-        self.database.update_entity(self.dict_entities[key].get_legacy_device())
-
-    def set_entity_via_item(self, key, dps, value):
-        """Write something useful."""
-        self.dict_entities[key].attributes["via"][dps] = value
-        self.database.update_entity(self.dict_entities[key].get_legacy_device())
 
     def _start_entity_thread(self, key, entity):
         thread_object = TuyaMQTTEntity(key, entity, self)
@@ -398,7 +356,7 @@ class TuyaMQTT:
         If a discover message arrives we kill the thread for the
         device (if any), and restart with new config (if any)
         """
-        # TODO: entity is becomming a bit of a mess -> data object
+
         logger.info(
             "discovery message received %s topic %s retained %s ",
             str(message.payload.decode("utf-8")),
@@ -447,14 +405,15 @@ class TuyaMQTT:
         """MQTT message callback, executed in the MQTT client's context."""
         topic_parts = message.topic.split("/")
 
-        try:
-            if topic_parts[1] == "discovery":
-                self._handle_discover_message(message)
-                return
-        except Exception as ex:
-            print(ex)
+        # try:
+        if topic_parts[1] == "discovery":
+            self._handle_discover_message(message)
+            return
+
+        # except Exception as ex:
+        #     print(ex)
         # will be removed eventually
-        if message.topic[-7:] == "command":
+        if len(topic_parts) <= 3 and message.topic[-7:] == "command":
             self._handle_command_message(message)
 
     def main_loop(self):
