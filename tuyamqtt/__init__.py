@@ -4,27 +4,9 @@ import paho.mqtt.client as mqtt
 import json
 import queue
 import threading
-import logging
-from .cmdline import ARGS
+from .configure import logger
 import database
 from tuyaface.tuyaclient import TuyaClient
-
-
-LOGLEVEL = logging.INFO
-if ARGS.ll == "INFO":
-    LOGLEVEL = logging.INFO
-elif ARGS.ll == "WARN":
-    LOGLEVEL = logging.WARN
-elif ARGS.ll == "ERROR":
-    LOGLEVEL = logging.ERROR
-elif ARGS.ll == "DEBUG":
-    LOGLEVEL = logging.DEBUG
-
-logging.basicConfig(
-    format="%(asctime)s %(levelname)-8s (%(threadName)s) [%(name)s] %(message)s",
-    level=LOGLEVEL,
-)
-logger = logging.getLogger(__name__)
 
 
 def connack_string(state):
@@ -121,7 +103,7 @@ class TuyaMQTTEntity(threading.Thread):
         if message.topic[-7:] != "command":
             return
 
-        logging.debug(
+        logger.debug(
             "(%s) topic %s retained %s message received %s",
             self.entity["ip"],
             message.topic,
@@ -159,6 +141,9 @@ class TuyaMQTTEntity(threading.Thread):
         self.parent.set_entity_dps_item(self.key, dps_key, dps_value)
 
     def _set_via(self, dps_key, via: str):
+
+        if dps_key not in self.entity["attributes"]["via"]:
+            self.entity["attributes"]["via"][dps_key] = None
 
         if via == self.entity["attributes"]["via"][dps_key]:
             return
@@ -367,7 +352,6 @@ class TuyaMQTT:
             "localkey": entity_parts[3],
             "ip": entity_parts[4],
             "attributes": {"dps": {}, "via": {}},
-            "hass_discover": False,
             "topic_config": True,
         }
 
@@ -407,6 +391,12 @@ class TuyaMQTT:
 
         If a discover message arrives we kill the thread for the
         device (if any), and restart with new config (if any)
+
+        - find and kill running threads for id or ip
+        - check topic id against payload id
+        - check secret exists, ip exists
+        - set def protocol if no value in payload
+        - start new thread for id if message not None
         """
 
         logger.info(
@@ -432,8 +422,8 @@ class TuyaMQTT:
         entity = json.loads(message.payload)
         entity["attributes"] = {"dps": {}, "via": {}}
         for data_point in entity["dps"]:
-            entity["attributes"]["dps"][str(data_point.key)] = None
-            entity["attributes"]["via"][str(data_point.key)] = "mqtt"
+            entity["attributes"]["dps"][str(data_point["key"])] = None
+            entity["attributes"]["via"][str(data_point["key"])] = "mqtt"
         entity["topic_config"] = False
 
         key = self.add_entity_dict_discovery(topic_parts[2], entity)

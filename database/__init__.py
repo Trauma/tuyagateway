@@ -67,7 +67,6 @@ def get_entities():
             "protocol": row[4],
             "topic": row[5],
             "attributes": json.loads(row[6]),
-            "status_poll": row[7],
             "topic_config": True,
         }
         dictOfEntities[row[1]] = entity
@@ -142,6 +141,8 @@ def upsert_entity(entity: dict):
 
 
 def upsert_entities(entities: dict):
+
+    print(entities)
 
     if False in set(map(upsert_entity, entities.values())):
         return False
