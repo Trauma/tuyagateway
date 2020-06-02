@@ -146,6 +146,7 @@ class TuyaMQTTEntity(threading.Thread):
 
         for dps_key, dps_value in data["dps"].items():
             data_point_key = int(dps_key)
+            data_point_topic = f"{self.mqtt_topic}/{data_point_key}"
 
             logger.debug(
                 "(%s) _process_data %s : %s", self.entity.ip_address, dps_key, dps_value
@@ -161,14 +162,10 @@ class TuyaMQTTEntity(threading.Thread):
                 self.entity.attributes["dps"][data_point_key] = dps_value
 
                 logger.debug(
-                    "(%s) ->publish %s/%s/state",
-                    self.entity.ip_address,
-                    self.mqtt_topic,
-                    data_point_key,
+                    "(%s) ->publish %s/state", self.entity.ip_address, data_point_topic
                 )
                 self.mqtt_client.publish(
-                    f"{self.mqtt_topic}/{data_point_key}/state",
-                    bool_payload(self.config, dps_value),
+                    f"{data_point_topic}/state", bool_payload(self.config, dps_value),
                 )
 
                 self.entity.attributes["via"][data_point_key] = via
@@ -180,14 +177,12 @@ class TuyaMQTTEntity(threading.Thread):
                 }
 
                 logger.debug(
-                    "(%s) ->publish %s/%s/attributes",
+                    "(%s) ->publish %s/attributes",
                     self.entity.ip_address,
-                    self.mqtt_topic,
-                    data_point_key,
+                    data_point_topic,
                 )
                 self.mqtt_client.publish(
-                    f"{self.mqtt_topic}/{data_point_key}/attributes",
-                    json.dumps(attr_item),
+                    f"{data_point_topic}/attributes", json.dumps(attr_item),
                 )
 
         if changed:
@@ -210,6 +205,7 @@ class TuyaMQTTEntity(threading.Thread):
         # this is never true :/
         if status_from == "command":
             via = "mqtt"
+        self.entity.set_tuya_message(data, via)
         self._process_data(data, via)
 
     def request_status(self, via: str = "tuya", force_mqtt: bool = False):
@@ -218,6 +214,7 @@ class TuyaMQTTEntity(threading.Thread):
             data = self.tuya_client.status()
             if not data:
                 return
+            self.entity.set_tuya_message(data, via)
             self._process_data(data, via, force_mqtt)
         except Exception:
             logger.exception("(%s) status request error", self.entity.ip_address)
@@ -323,7 +320,6 @@ class TuyaMQTT:
 
     def add_entity_dict_topic(self, device):
         """Write something useful."""
-        print("hallo")
         entity_keys = self._find_entity_keys(device.key, device.ip_address)
         if len(entity_keys) != 0:
             return None
@@ -405,13 +401,9 @@ class TuyaMQTT:
         """MQTT message callback, executed in the MQTT client's context."""
         topic_parts = message.topic.split("/")
 
-        # try:
         if topic_parts[1] == "discovery":
             self._handle_discover_message(message)
             return
-
-        # except Exception as ex:
-        #     print(ex)
         # will be removed eventually
         if len(topic_parts) <= 3 and message.topic[-7:] == "command":
             self._handle_command_message(message)

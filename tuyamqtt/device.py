@@ -11,7 +11,9 @@ def _validate_data_point_config(data_point: dict) -> bool:
         "maximal" not in data_point or "minimal" not in data_point
     ):
         return False
-    # TODO: check min / max type and min < max
+    if data_point["type_value"] in ["str", "int", "float"]:
+        if data_point["maximal"] > data_point["minimal"]:
+            return False
     return True
 
 
@@ -38,11 +40,16 @@ class Device:
     _topic_parts = []
     _input_santize = {}
     _output_type = "bool"
-    _data_point_payload = {}
+    _mqtt_payload = {}
+    _tuya_payload = {}
 
     def __init__(self, message, topic_config=False):
         """Initialize Device."""
         self.topic_config = topic_config
+        if message == "":
+            # device from db
+            return
+
         self._set_key(message.topic)
         if not self.topic_config:
             self._set_gc_config(message.payload)
@@ -109,15 +116,25 @@ class Device:
         if not self.topic_config:
             self.mqtt_topic = f"tuya/{self.key}"
 
+    def get_tuya_payload(self):
+        """Get the sanitized Tuya command message payload."""
+        return self._mqtt_payload
+
+    def get_mqtt_payload(self):
+        """Get the sanitized MQTT reply message payload."""
+        return self._tuya_payload
+
     def get_tuya_dp_payload(self, data_point_key: int):
         """Get the sanitized Tuya command message payload for data point."""
-        return self._data_point_payload[data_point_key]
+        return self._mqtt_payload[data_point_key]
 
-    def get_mqtt_dp_data(self, data_point_key: int):
+    def get_mqtt_dp_payload(self, data_point_key: int):
         """Get the sanitized MQTT reply message payload for data point."""
+        return self._tuya_payload[data_point_key]
 
-    def set_tuya_message(self, message):
+    def set_tuya_message(self, message, via: str):
         """Set the Tuya reply message payload."""
+        # TODO: sanitize message and add to _tuya_payload
 
     def set_mqtt_message(self, message):
         """Set the MQTT command message payload."""
@@ -131,11 +148,11 @@ class Device:
         if data_point_key not in self.attributes["via"]:
             self.attributes["via"][data_point_key] = "mqtt"
 
-        self._data_point_payload[data_point_key] = self._sanitize_input(
+        self._mqtt_payload[data_point_key] = self._sanitize_mqtt_input(
             data_point_key, message.payload
         )
 
-    def _sanitize_input(self, data_point_key: int, payload):
+    def _sanitize_mqtt_input(self, data_point_key: int, payload):
         input_santize = self._input_santize[data_point_key]
         if input_santize["type_value"] == "bool":
             return payload_bool(payload)
@@ -169,5 +186,6 @@ class Device:
         self.localkey = device["localkey"]
         self.ip_address = device["ip"]
         self.attributes = device["attributes"]
-        self.topic_config = device["topic_config"]
+        self.topic_config = True
         self.is_valid = True
+        self._set_mqtt_topic()
