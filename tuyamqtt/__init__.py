@@ -308,12 +308,12 @@ class TuyaMQTT:
 
     def write_entities(self):
         """Write entities to database."""
-        for device in self.dict_entities:
+        for device in self.dict_entities.items():
             self.database.upsert_entity(device.get_legacy_device())
 
     def read_entities(self):
         """Read entities from database."""
-        for legacy_device in self.database.get_entities():
+        for legacy_device in self.database.get_entities().items():
             device = Device("", True)
             device.set_legacy_device(legacy_device)
             self.dict_entities[device.key] = device
