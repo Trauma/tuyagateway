@@ -308,15 +308,18 @@ class TuyaMQTT:
 
     def write_entities(self):
         """Write entities to database."""
-        for device in self.dict_entities:
+        for (
+            key,  # pylint: disable=unused-variable
+            device,
+        ) in self.dict_entities.items():
             self.database.upsert_entity(device.get_legacy_device())
 
     def read_entities(self):
         """Read entities from database."""
-        for legacy_device in self.database.get_entities():
+        for (key, legacy_device) in self.database.get_entities().items():
             device = Device("", True)
             device.set_legacy_device(legacy_device)
-            self.dict_entities[device.key] = device
+            self.dict_entities[key] = device
 
     def add_entity_dict_topic(self, device):
         """Write something useful."""
@@ -372,7 +375,7 @@ class TuyaMQTT:
                 try:
                     self.worker_threads[entity_key].stop_entity()
                     self.worker_threads[entity_key].join()
-                    del self.dict_entities[entity_key]
+                    # del self.dict_entities[entity_key]
                 except Exception:
                     pass
 
@@ -397,6 +400,24 @@ class TuyaMQTT:
         )
         self._start_entity_thread(device.key, device)
 
+    def _handle_command_message2(self, message):
+
+        device = Device(message, True)
+
+        entity_keys = self._find_entity_keys(device.key, device.ip_address)
+        if len(entity_keys) != 0:
+            return None
+
+        self.dict_entities[device.key] = device
+
+        logger.info(
+            "topic config message received %s topic %s retained %s ",
+            str(message.payload.decode("utf-8")),
+            message.topic,
+            message.retain,
+        )
+        self._start_entity_thread(device.key, device)
+
     def on_mqtt_message(self, client, userdata, message):
         """MQTT message callback, executed in the MQTT client's context."""
         topic_parts = message.topic.split("/")
@@ -405,22 +426,26 @@ class TuyaMQTT:
             self._handle_discover_message(message)
             return
         # will be removed eventually
-        if len(topic_parts) <= 3 and message.topic[-7:] == "command":
+
+        if message.topic[-7:] == "command":
             self._handle_command_message(message)
 
     def main_loop(self):
         """Send / receive from tuya devices."""
-        try:
-            self.mqtt_connect()
-            self.read_entities()
 
+        time_run_save = time.time() + 60
+        try:
+
+            self.read_entities()
             for key, device in self.dict_entities.items():
                 self._start_entity_thread(key, device)
-
-            time_run_save = 0
+            # wait for threads to be started before
+            # opening up for changes
+            self.mqtt_connect()
 
             while True:
                 if time.time() > time_run_save:
+                    # should really be locking dict_entities
                     self.write_entities()
                     time_run_save = time.time() + 300
 

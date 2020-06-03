@@ -4,6 +4,8 @@ import json
 
 def _validate_data_point_config(data_point: dict) -> bool:
 
+    if "type_value" not in data_point:
+        return False
     if data_point["type_value"] not in ["bool", "str", "int", "float"]:
         return False
 
@@ -38,7 +40,7 @@ class Device:
     mqtt_topic = None
     pref_status_cmd = 10
     _topic_parts = []
-    _input_santize = {}
+    _input_sanitize = {}
     _output_type = "bool"
     _mqtt_payload = {}
     _tuya_payload = {}
@@ -63,7 +65,6 @@ class Device:
         self.key = self._topic_parts[2]
 
     def _set_gc_config(self, message):
-
         if message == b"":
             return
         device = json.loads(message)
@@ -89,7 +90,9 @@ class Device:
             self.attributes["dps"][int(data_point["key"])] = None
             self.attributes["via"][int(data_point["key"])] = "mqtt"
             if _validate_data_point_config(data_point):
-                self._input_santize[int(data_point["key"])] = data_point
+                self._input_sanitize[int(data_point["key"])] = data_point
+                if "type_value" not in data_point:
+                    return
                 self._output_type = data_point["type_value"]
 
         self.is_valid = True
@@ -142,7 +145,6 @@ class Device:
         # e.g. /<topic>/command which is invalid but would pass the filter
         entity_parts = message.topic.split("/")
         data_point_key = int(entity_parts[len(entity_parts) - 2])
-
         if data_point_key not in self.attributes["dps"]:
             self.attributes["dps"][data_point_key] = None
         if data_point_key not in self.attributes["via"]:
@@ -153,19 +155,27 @@ class Device:
         )
 
     def _sanitize_mqtt_input(self, data_point_key: int, payload):
-        input_santize = self._input_santize[data_point_key]
-        if input_santize["type_value"] == "bool":
+
+        # set defaults for topic config devices
+        if data_point_key not in self._input_sanitize:
+            self._input_sanitize[data_point_key] = {"type_value": "bool"}
+            self._output_type = "bool"
+
+        input_sanitize = self._input_sanitize[data_point_key]
+        if input_sanitize["type_value"] == "bool":
             return payload_bool(payload)
-        if input_santize["type_value"] == "str":
+        if input_sanitize["type_value"] == "str":
             tmp_payload = payload
-            if len(payload) > input_santize["maximal"]:
-                tmp_payload = payload[: input_santize["maximal"]]
+            if len(payload) > input_sanitize["maximal"]:
+                tmp_payload = payload[: input_sanitize["maximal"]]
             return tmp_payload
-        if input_santize["type_value"] == "int":
+        if input_sanitize["type_value"] == "int":
             tmp_payload = int(payload)
-        elif input_santize["type_value"] == "float":
+        elif input_sanitize["type_value"] == "float":
             tmp_payload = float(payload)
-        return max(input_santize["minimal"], min(tmp_payload, input_santize["maximal"]))
+        return max(
+            input_sanitize["minimal"], min(tmp_payload, input_sanitize["maximal"])
+        )
 
     def get_legacy_device(self) -> dict:
         """Support for old structure."""
@@ -189,3 +199,7 @@ class Device:
         self.topic_config = True
         self.is_valid = True
         self._set_mqtt_topic()
+
+        for data_point in self.attributes["dps"]:
+            self.attributes["dps"][data_point] = None
+            self.attributes["via"][data_point] = "mqtt"

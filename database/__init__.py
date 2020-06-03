@@ -64,8 +64,7 @@ def get_entities():
             "deviceid": row[1],
             "localkey": row[2],
             "ip": row[3],
-            "protocol": row[4],
-            "topic": row[5],
+            "protocol": row[4],            
             "attributes": json.loads(row[6]),
             "topic_config": True,
         }
@@ -82,14 +81,14 @@ def attributes_to_json(entity: dict):
 
 
 def insert_entity(entity: dict):
-
+   
     if not entity["topic_config"]:
         return False
 
     try:
         cursor.execute(
-            """INSERT INTO entities(deviceid, localkey, ip, protocol, topic, attributes)
-                        VALUES(:deviceid, :localkey, :ip, :protocol, :topic, :attributes)""",
+            """INSERT INTO entities(deviceid, localkey, ip, protocol, attributes)
+                        VALUES(:deviceid, :localkey, :ip, :protocol, :attributes)""",
             attributes_to_json(entity),
         )
         db.commit()
@@ -113,14 +112,13 @@ def update_entity(entity: dict):
         with db:
             db.execute(
                 """UPDATE entities 
-                    SET deviceid = ?, localkey = ?, ip = ?, protocol = ?, topic = ?, attributes = ?
+                    SET deviceid = ?, localkey = ?, ip = ?, protocol = ?,  attributes = ?
                     WHERE id = ?""",
                 (
                     entity["deviceid"],
                     entity["localkey"],
                     entity["ip"],
                     entity["protocol"],
-                    entity["topic"],
                     json.dumps(entity["attributes"]),
                     entity["id"],
                 ),
