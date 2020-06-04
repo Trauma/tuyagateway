@@ -19,7 +19,8 @@ CONFIG = DEFAULTS
 
 try:
     CONFIG = configparser.ConfigParser()
-    CONFIG.read([f"{sys.path[0]}/config/tuyamqtt.conf", "/etc/tuyamqtt.conf"])
+    CONFFILE = "%s/config/tuyamqtt.conf" % sys.path[0]
+    CONFIG.read([CONFFILE, "/etc/tuyamqtt.conf"])
 except Exception:
     CONFIG = DEFAULTS
 

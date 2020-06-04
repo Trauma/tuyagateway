@@ -6,8 +6,8 @@ import sys
 Database will be removed when mqttdevices works properly
 Target v2.0.0
 """
-
-db = sqlite3.connect(f"{sys.path[0]}/config/tuyamqtt.db", check_same_thread=False)
+dbfile = "%s/config/tuyamqtt.db" % sys.path[0]
+db = sqlite3.connect(dbfile, check_same_thread=False)
 cursor = db.cursor()
 
 
