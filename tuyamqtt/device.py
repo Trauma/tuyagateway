@@ -95,12 +95,14 @@ class Device:
             self._set_pref_status_cmd(gismo_dict["pref_status_cmd"])
 
         for data_point in gismo_dict["dps"]:
-            self.attributes["dps"][int(data_point["key"])] = None
-            self.attributes["via"][int(data_point["key"])] = "mqtt"
+            dp_key = int(data_point["key"])
+            self.attributes["dps"][dp_key] = None
+            self.attributes["via"][dp_key] = "mqtt"
             if _validate_data_point_config(data_point):
-                self._input_sanitize[int(data_point["key"])] = data_point
+                self._input_sanitize[dp_key] = data_point
                 if "type_value" not in data_point:
                     return
+                # uhm? What?
                 self._output_type = data_point["type_value"]
 
         self.is_valid = True
