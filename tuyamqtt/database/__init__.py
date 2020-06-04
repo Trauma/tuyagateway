@@ -1,43 +1,40 @@
+"""Database for TuyaMQTT."""
 import sqlite3
 import json
-import sys 
 
-"""
-Database will be removed when mqttdevices works properly
-Target v2.0.0
-"""
-dbfile = "%s/config/tuyamqtt.db" % sys.path[0]
-db = sqlite3.connect(dbfile, check_same_thread=False)
-cursor = db.cursor()
+
+DATABASE = sqlite3.connect("tuyamqtt.db", check_same_thread=False)
+CURSOR = DATABASE.cursor()
 
 
 def disconnect():
-    db.close()
+    """Close the database."""
+    DATABASE.close()
 
 
 def setup():
-
-    cursor.execute(
+    """Initialize the database."""
+    CURSOR.execute(
         """
         CREATE TABLE IF NOT EXISTS entities (
-            id INTEGER PRIMARY KEY, 
+            id INTEGER PRIMARY KEY,
             deviceid TEXT unique,
-            localkey TEXT, 
-            ip TEXT, 
-            protocol TEXT, 
-            topic TEXT, 
-            attributes TEXT, 
-            status_poll FLOAT, 
+            localkey TEXT,
+            ip TEXT,
+            protocol TEXT,
+            topic TEXT,
+            attributes TEXT,
+            status_poll FLOAT,
             status_command INTEGER
             hass_discover BOOL,
             name TEXT
         )
     """
     )
-    cursor.execute(
+    CURSOR.execute(
         """
         CREATE TABLE IF NOT EXISTS attributes (
-            id INTEGER PRIMARY KEY, 
+            id INTEGER PRIMARY KEY,
             entity_id INTEGER,
             dpsitem INTEGER,
             dpsvalue FLOAT,
@@ -47,17 +44,17 @@ def setup():
     """
     )
 
-    db.commit()
+    DATABASE.commit()
 
 
 # quick and dirty
 
 
 def get_entities():
-
-    dictOfEntities = {}
-    cursor.execute("""SELECT * FROM entities""")
-    all_rows = cursor.fetchall()
+    """Get items from DATABASE."""
+    dict_entities = {}
+    CURSOR.execute("""SELECT * FROM entities""")
+    all_rows = CURSOR.fetchall()
     for row in all_rows:
 
         entity = {
@@ -65,54 +62,50 @@ def get_entities():
             "deviceid": row[1],
             "localkey": row[2],
             "ip": row[3],
-            "protocol": row[4],            
+            "protocol": row[4],
             "attributes": json.loads(row[6]),
             "topic_config": True,
         }
-        dictOfEntities[row[1]] = entity
-    # print(dictOfEntities)
-    return dictOfEntities
+        dict_entities[row[1]] = entity
+    return dict_entities
 
 
 def attributes_to_json(entity: dict):
-
-    dbentity = dict(entity)
-    dbentity["attributes"] = json.dumps(dbentity["attributes"])
-    return dbentity
+    """Create json formatted string."""
+    database_entity = dict(entity)
+    database_entity["attributes"] = json.dumps(database_entity["attributes"])
+    return database_entity
 
 
 def insert_entity(entity: dict):
-   
+    """Insert an item."""
     if not entity["topic_config"]:
         return False
 
     try:
-        cursor.execute(
+        CURSOR.execute(
             """INSERT INTO entities(deviceid, localkey, ip, protocol, attributes)
                         VALUES(:deviceid, :localkey, :ip, :protocol, :attributes)""",
             attributes_to_json(entity),
         )
-        db.commit()
-        entity["id"] = cursor.lastrowid
-    except Exception as e:
-        # print(e)
-        db.rollback()
+        DATABASE.commit()
+        entity["id"] = CURSOR.lastrowid
+    except Exception:
+        DATABASE.rollback()
         return False
 
     return True
-    # insert attributes
-    # db.commit()
 
 
 def update_entity(entity: dict):
-
+    """Update item."""
     if not entity["topic_config"]:
         return False
 
     try:
-        with db:
-            db.execute(
-                """UPDATE entities 
+        with DATABASE:
+            DATABASE.execute(
+                """UPDATE entities
                     SET deviceid = ?, localkey = ?, ip = ?, protocol = ?,  attributes = ?
                     WHERE id = ?""",
                 (
@@ -124,14 +117,13 @@ def update_entity(entity: dict):
                     entity["id"],
                 ),
             )
-    except Exception as e:
-        # print(e)
+    except Exception:
         return False
     return True
 
 
 def upsert_entity(entity: dict):
-
+    """Upsert item into DATABASE."""
     if not entity["topic_config"]:
         return False
 
@@ -140,17 +132,17 @@ def upsert_entity(entity: dict):
 
 
 def upsert_entities(entities: dict):
-
+    """Upsert items into DATABASE."""
     if False in set(map(upsert_entity, entities.values())):
         return False
     return True
 
 
 def delete_entity(entity: dict):
-
+    """Remove item from DATABASE."""
     if "id" not in entity:
         return
 
-    cursor.execute("""DELETE FROM entities WHERE id = ? """, (entity["id"],))
+    CURSOR.execute("""DELETE FROM entities WHERE id = ? """, (entity["id"],))
     # delete attributes
-    db.commit()
+    DATABASE.commit()

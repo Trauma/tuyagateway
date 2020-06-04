@@ -54,8 +54,7 @@ setup(
     scripts=[f"scripts/{PACKAGE_NAME}"],
     author_email="",
     data_files=[
-        ("config", ["config/tuyamqtt.conf", "config/tuyamqtt.service"]),
-        ("", ["Makefile"]),
+        ("etc", ["etc/tuyamqtt.conf", "etc/tuyamqtt.service", "etc/Makefile"]),
     ],
     license="Unlicense",
     python_requires=">=3.6",
@@ -74,10 +73,4 @@ setup(
     packages=find_packages(),
     platforms="any",
     install_requires=parse_requirements("requirements.txt"),
-    # py_modules=['main'],
-    # entry_points={
-    #     "console_scripts": [
-    #         "main=main:main",
-    #     ]
-    # },
 )
