@@ -233,7 +233,7 @@ class TuyaMQTTEntity(threading.Thread):
         except Exception:
             self._log_request_error("set_state")
 
-    def set_status(self, payload):
+    def set_status(self, payload: dict):
         """Set status of Tuya device."""
         logger.warning(
             "(%s) set_status not implemented yet %s failed",
@@ -326,7 +326,7 @@ class TuyaMQTT:
     def read_entities(self):
         """Read entities from database."""
         for (key, legacy_device) in self.database.get_entities().items():
-            device = Device("", True)
+            device = Device()
             device.set_legacy_device(legacy_device)
             self.dict_entities[key] = device
 
@@ -373,8 +373,12 @@ class TuyaMQTT:
         )
         # TODO: based on GC config add reply handler to _start_entity_thread (e.g. HA/Homie)
         # defaults to HA
+        try:
+            discover_dict = json.loads(message.payload)
+        except Exception as ex:
+            print(ex)
+        device = Device(discover_dict, False)
 
-        device = Device(message, False)
         entity_keys = self._find_entity_keys(device.key, device.ip_address)
 
         for entity_key in entity_keys:
@@ -386,18 +390,26 @@ class TuyaMQTT:
                 try:
                     self.worker_threads[entity_key].stop_entity()
                     self.worker_threads[entity_key].join()
-                    # del self.dict_entities[entity_key]
                 except Exception:
                     pass
 
         if not device.is_valid:
             return
         self.dict_entities[device.key] = device
-        self._start_entity_thread(device.key, device)
+        # self._start_entity_thread(device.key, device)
 
     def _handle_command_message(self, message):
 
-        device = Device(message, True)
+        device = Device()
+        topic_parts = message.topic.split("/")
+        device.set_legacy_device(
+            {
+                "protocol": topic_parts[1],
+                "deviceid": topic_parts[2],
+                "localkey": topic_parts[3],
+                "ip": topic_parts[4],
+            }
+        )
 
         key = self.add_entity_dict_topic(device)
         if not key:
@@ -414,7 +426,16 @@ class TuyaMQTT:
     # TODO: test this, do we still need the db
     def _handle_command_message2(self, message):
 
-        device = Device(message, True)
+        device = Device()
+        topic_parts = message.topic.split("/")
+        device.set_legacy_device(
+            {
+                "protocol": topic_parts[1],
+                "deviceid": topic_parts[2],
+                "localkey": topic_parts[3],
+                "ip": topic_parts[4],
+            }
+        )
 
         entity_keys = self._find_entity_keys(device.key, device.ip_address)
         if len(entity_keys) != 0:
@@ -433,12 +454,13 @@ class TuyaMQTT:
     def on_mqtt_message(self, client, userdata, message):
         """MQTT message callback, executed in the MQTT client's context."""
         topic_parts = message.topic.split("/")
-        # print(message.topic)
+
         if topic_parts[1] == "discovery":
             self._handle_discover_message(message)
             return
         # will be removed eventually
-        if len(topic_parts) == 6 and topic_parts[5] == "command":
+
+        if len(topic_parts) == 7 and topic_parts[6] == "command":
             self._handle_command_message(message)
 
     def main_loop(self):

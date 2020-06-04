@@ -1,5 +1,4 @@
 """Device data and validation (WIP)."""
-import json
 
 
 def _validate_data_point_config(data_point: dict) -> bool:
@@ -45,51 +44,57 @@ class Device:
     _mqtt_payload = {}
     _tuya_payload = {}
 
-    def __init__(self, message, topic_config=False):
+    def __init__(self, gismo_dict: dict = None, topic_config=True):
         """Initialize Device."""
         # TODO: message and topic should come in as separate params
 
         self.topic_config = topic_config
-        if message == "":
+        if not gismo_dict:
             # device from db
             return
 
-        self._set_key(message.topic)
         if not self.topic_config:
-            self._set_gc_config(message.payload)
-        else:
-            self._set_topic_config()
+            self._set_gc_config(gismo_dict)
         self._set_mqtt_topic()
 
-    def _set_key(self, topic):
-        # TODO: this is asking for trouble
-        self._topic_parts = topic.split("/")
-        self.key = self._topic_parts[2]
+    def _set_key(self, deviceid: str):
+        """Set the deviceid for the device."""
+        self.key = deviceid
 
-    def _set_gc_config(self, message):
-        if message == b"":
+    def _set_protocol(self, protocol: str):
+        """Set the protocol for the device."""
+        if protocol in ["3.1", "3.3"]:
+            self.protocol = protocol
             return
-        # TODO: parsing json should be done on main thread
-        device = json.loads(message)
+        raise Exception("Unsupported protocol.")
 
+    def _set_localkey(self, localkey: str):
+        """Set the localkey for the device."""
+        self.localkey = localkey
+
+    def _set_ip_address(self, ip_address: str):
+        """Set the ip address for the device."""
+        # TODO: check format
+        self.ip_address = ip_address
+
+    def _set_gc_config(self, gismo_dict: dict):
         # validate device
-        if "localkey" not in device:
+        if "localkey" not in gismo_dict:
             return
-        self.localkey = device["localkey"]
-        if "deviceid" not in device:
+        self._set_localkey(gismo_dict["localkey"])
+        if "deviceid" not in gismo_dict:
             return
-        if device["deviceid"] != self.key:
+        self._set_key(gismo_dict["deviceid"])
+        if "ip" not in gismo_dict:
             return
-        if "ip" not in device:
-            return
-        self.ip_address = device["ip"]
+        self._set_ip_address(gismo_dict["ip"])
 
-        if "protocol" in device:
-            self._set_protocol(device["protocol"])
-        if "pref_status_cmd" in device:
-            self._set_pref_status_cmd(device["pref_status_cmd"])
+        if "protocol" in gismo_dict:
+            self._set_protocol(gismo_dict["protocol"])
+        if "pref_status_cmd" in gismo_dict:
+            self._set_pref_status_cmd(gismo_dict["pref_status_cmd"])
 
-        for data_point in device["dps"]:
+        for data_point in gismo_dict["dps"]:
             self.attributes["dps"][int(data_point["key"])] = None
             self.attributes["via"][int(data_point["key"])] = "mqtt"
             if _validate_data_point_config(data_point):
@@ -100,20 +105,10 @@ class Device:
 
         self.is_valid = True
 
-    def _set_topic_config(self):
-
-        self._set_protocol(self._topic_parts[1])
-        self.localkey = self._topic_parts[3]
-        self.ip_address = self._topic_parts[4]
-
     def _set_pref_status_cmd(self, pref_status_cmd: int):
 
         if pref_status_cmd in [10, 13]:
             self.pref_status_cmd = pref_status_cmd
-
-    def _set_protocol(self, protocol):
-        if protocol in ["3.1", "3.3"]:
-            self.protocol = protocol
 
     def _set_mqtt_topic(self):
         self.mqtt_topic = (
@@ -215,11 +210,11 @@ class Device:
     def set_legacy_device(self, device: dict):
         """Support for old structure."""
         self._set_protocol(device["protocol"])
-        self.key = device["deviceid"]
-        self.localkey = device["localkey"]
-        self.ip_address = device["ip"]
-        self.attributes = device["attributes"]
-        self.topic_config = True
+        self._set_key(device["deviceid"])
+        self._set_localkey(device["localkey"])
+        self._set_ip_address(device["ip"])
+        if "attributes" in device:
+            self.attributes = device["attributes"]
         self.is_valid = True
         self._set_mqtt_topic()
 
