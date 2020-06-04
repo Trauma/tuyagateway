@@ -1,12 +1,13 @@
 import sqlite3
 import json
+import sys 
 
 """
 Database will be removed when mqttdevices works properly
 Target v2.0.0
 """
 
-db = sqlite3.connect("./config/tuyamqtt.db", check_same_thread=False)
+db = sqlite3.connect(f"{sys.path[0]}/config/tuyamqtt.db", check_same_thread=False)
 cursor = db.cursor()
 
 

@@ -2,6 +2,7 @@
 import argparse
 import configparser
 import logging
+import sys
 
 DEFAULTS = {
     "General": {
@@ -18,7 +19,7 @@ CONFIG = DEFAULTS
 
 try:
     CONFIG = configparser.ConfigParser()
-    CONFIG.read(["../config/tuyamqtt.conf", "/etc/tuyamqtt.conf"])
+    CONFIG.read([f"{sys.path[0]}/config/tuyamqtt.conf", "/etc/tuyamqtt.conf"])
 except Exception:
     CONFIG = DEFAULTS
 
