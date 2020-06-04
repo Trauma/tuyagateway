@@ -103,15 +103,18 @@ class TuyaMQTTEntity(threading.Thread):
 
     def _handle_mqtt_message(self, message):
 
-        # will give problems with topics without dp key
-        # e.g. /<topic>/command which is invalid but would pass the filter
-        self.entity.set_mqtt_message(message)
-
         entity_parts = message.topic.split("/")
-        data_point_key = int(entity_parts[len(entity_parts) - 2])
-
-        payload = self.entity.get_tuya_dp_payload(data_point_key)
-        self.set_state(data_point_key, payload)
+        if entity_parts[len(entity_parts) - 2].isnumeric():
+            dp_key = int(entity_parts[len(entity_parts) - 2])
+            # payload in bytes
+            self.entity.set_mqtt_message(message.payload, dp_key)
+            payload = self.entity.get_tuya_payload(dp_key)
+            self.set_state(dp_key, payload)
+            return
+        # should accept json
+        self.entity.set_mqtt_message(message.payload)
+        payload = self.entity.get_tuya_payload()
+        self.set_status(payload)
 
     def on_mqtt_connect(self, client, userdata, flags, return_code):
         """MQTT connect callback, executed in the MQTT client's context."""
@@ -152,31 +155,31 @@ class TuyaMQTTEntity(threading.Thread):
         changed = force_mqtt
 
         for dps_key, dps_value in data["dps"].items():
-            data_point_key = int(dps_key)
-            data_point_topic = f"{self.mqtt_topic}/{data_point_key}"
+            dp_key = int(dps_key)
+            data_point_topic = f"{self.mqtt_topic}/{dp_key}"
 
             logger.debug(
                 "(%s) _process_data %s : %s", self.entity.ip_address, dps_key, dps_value
             )
             # TODO: direct handling of data should be done in Device
             # data access only through getters / setters
-            if data_point_key not in self.entity.attributes["dps"]:
-                self.entity.attributes["dps"][data_point_key] = None
-            if data_point_key not in self.entity.attributes["via"]:
-                self.entity.attributes["via"][data_point_key] = "init"
+            if dp_key not in self.entity.attributes["dps"]:
+                self.entity.attributes["dps"][dp_key] = None
+            if dp_key not in self.entity.attributes["via"]:
+                self.entity.attributes["via"][dp_key] = "init"
 
-            if dps_value != self.entity.attributes["dps"][data_point_key] or force_mqtt:
+            if dps_value != self.entity.attributes["dps"][dp_key] or force_mqtt:
                 changed = True
 
-                self.entity.attributes["dps"][data_point_key] = dps_value
-                self.entity.attributes["via"][data_point_key] = via
+                self.entity.attributes["dps"][dp_key] = dps_value
+                self.entity.attributes["via"][dp_key] = via
                 self._mqtt_publish(
                     data_point_topic, "state", bool_payload(self.config, dps_value)
                 )
 
                 attr_item = {
-                    "dps": self.entity.attributes["dps"][data_point_key],
-                    "via": self.entity.attributes["via"][data_point_key],
+                    "dps": self.entity.attributes["dps"][dp_key],
+                    "via": self.entity.attributes["via"][dp_key],
                     "time": time.time(),
                 }
                 self._mqtt_publish(
@@ -198,7 +201,7 @@ class TuyaMQTTEntity(threading.Thread):
         # this is never true :/
         if status_from == "command":
             via = "mqtt"
-        self.entity.set_tuya_message(data, via)
+        self.entity.set_tuya_message(data, via=via)
         self._process_data(data, via)
 
     def request_status(self, via: str = "tuya", force_mqtt: bool = False):
@@ -207,29 +210,42 @@ class TuyaMQTTEntity(threading.Thread):
             data = self.tuya_client.status()
             if not data:
                 return
-            self.entity.set_tuya_message(data, via)
+            self.entity.set_tuya_message(data, via=via)
             self._process_data(data, via, force_mqtt)
         except Exception:
             logger.exception("(%s) status request error", self.entity.ip_address)
+
+    def _log_request_error(self, request_type: str):
+        logger.error(
+            "(%s) %s request on topic %s failed",
+            self.entity.ip_address,
+            request_type,
+            self.mqtt_topic,
+            exc_info=True,
+        )
 
     def set_state(self, dps_item: int, payload):
         """Set state of Tuya device."""
         try:
             result = self.tuya_client.set_state(payload, dps_item)
             if not result:
-                logger.error(
-                    "(%s) set_state request on topic %s failed",
-                    self.entity.ip_address,
-                    self.mqtt_topic,
-                )
-
+                self._log_request_error("set_state")
         except Exception:
-            logger.error(
-                "(%s) set_state request on topic %s",
-                self.entity.ip_address,
-                self.mqtt_topic,
-                exc_info=True,
-            )
+            self._log_request_error("set_state")
+
+    def set_status(self, payload):
+        """Set status of Tuya device."""
+        logger.warning(
+            "(%s) set_status not implemented yet %s failed",
+            self.entity.ip_address,
+            self.mqtt_topic,
+        )
+        # try:
+        #     result = self.tuya_client.set_status(payload)
+        #     if not result:
+        #         self._log_request_error("set_status")
+        # except Exception:
+        #     self._log_request_error("set_status")
 
     def run(self):
         """Tuya MQTTEntity main loop."""
@@ -355,6 +371,8 @@ class TuyaMQTT:
             message.topic,
             message.retain,
         )
+        # TODO: based on GC config add reply handler to _start_entity_thread (e.g. HA/Homie)
+        # defaults to HA
 
         device = Device(message, False)
         entity_keys = self._find_entity_keys(device.key, device.ip_address)
@@ -393,6 +411,7 @@ class TuyaMQTT:
         )
         self._start_entity_thread(device.key, device)
 
+    # TODO: test this, do we still need the db
     def _handle_command_message2(self, message):
 
         device = Device(message, True)

@@ -47,6 +47,8 @@ class Device:
 
     def __init__(self, message, topic_config=False):
         """Initialize Device."""
+        # TODO: message and topic should come in as separate params
+
         self.topic_config = topic_config
         if message == "":
             # device from db
@@ -60,13 +62,14 @@ class Device:
         self._set_mqtt_topic()
 
     def _set_key(self, topic):
-
+        # TODO: this is asking for trouble
         self._topic_parts = topic.split("/")
         self.key = self._topic_parts[2]
 
     def _set_gc_config(self, message):
         if message == b"":
             return
+        # TODO: parsing json should be done on main thread
         device = json.loads(message)
 
         # validate device
@@ -119,49 +122,69 @@ class Device:
         if not self.topic_config:
             self.mqtt_topic = f"tuya/{self.key}"
 
-    def get_tuya_payload(self):
+    def get_tuya_payload(self, dp_key: int = None):
         """Get the sanitized Tuya command message payload."""
+        if dp_key:
+            return self._get_tuya_dp_payload(dp_key)
         return self._mqtt_payload
 
-    def get_mqtt_payload(self):
+    def _get_tuya_dp_payload(self, dp_key: int):
+        """Get the sanitized Tuya command message payload for data point."""
+        return self._mqtt_payload[dp_key]
+
+    def get_mqtt_payload(self, dp_key: int = None):
         """Get the sanitized MQTT reply message payload."""
+        if dp_key:
+            return self._get_mqtt_dp_payload(dp_key)
         return self._tuya_payload
 
-    def get_tuya_dp_payload(self, data_point_key: int):
-        """Get the sanitized Tuya command message payload for data point."""
-        return self._mqtt_payload[data_point_key]
-
-    def get_mqtt_dp_payload(self, data_point_key: int):
+    def _get_mqtt_dp_payload(self, dp_key: int):
         """Get the sanitized MQTT reply message payload for data point."""
-        return self._tuya_payload[data_point_key]
+        return self._tuya_payload[dp_key]
 
-    def set_tuya_message(self, message, via: str):
+    def set_tuya_message(self, data: dict, dp_key: int = None, via: str = "mqtt"):
         """Set the Tuya reply message payload."""
+
+        if dp_key:
+            self._set_tuya_dp_message(data, dp_key, via)
+            return
+        for (dp_idx, dp_data) in data.items():
+            self._set_tuya_dp_message(dp_data, dp_idx, via)
+
+    def _set_tuya_dp_message(self, data: dict, dp_key: int, via: str):
+        """Set the Tuya reply message payload for data point."""
         # TODO: sanitize message and add to _tuya_payload
+        # we don't know what endpoint expects.
+        # read ha discover / put data in gc discover?
+        self._tuya_payload[dp_key] = data
 
-    def set_mqtt_message(self, message):
+    def set_mqtt_message(self, data, dp_key: int = None):
         """Set the MQTT command message payload."""
-        # will give problems with topics without dp key
-        # e.g. /<topic>/command which is invalid but would pass the filter
-        entity_parts = message.topic.split("/")
-        data_point_key = int(entity_parts[len(entity_parts) - 2])
-        if data_point_key not in self.attributes["dps"]:
-            self.attributes["dps"][data_point_key] = None
-        if data_point_key not in self.attributes["via"]:
-            self.attributes["via"][data_point_key] = "mqtt"
+        if dp_key:
+            self._set_mqtt_dp_message(data, dp_key)
+            return
+        # TODO: parse json and check if we have dict
+        for (dp_idx, dp_data) in data.items():
+            self._set_mqtt_dp_message(dp_data, dp_idx)
 
-        self._mqtt_payload[data_point_key] = self._sanitize_mqtt_input(
-            data_point_key, message.payload
-        )
+    def _set_mqtt_dp_message(self, data: bytes, dp_key: int):
+        """Set the MQTT command message payload for data point."""
 
-    def _sanitize_mqtt_input(self, data_point_key: int, payload):
+        if dp_key not in self.attributes["dps"]:
+            self.attributes["dps"][dp_key] = None
+        if dp_key not in self.attributes["via"]:
+            self.attributes["via"][dp_key] = "mqtt"
+
+        self._mqtt_payload[dp_key] = self._sanitize_mqtt_input(dp_key, data)
+
+    def _sanitize_mqtt_input(self, dp_key: int, payload: bytes):
 
         # set defaults for topic config devices
-        if data_point_key not in self._input_sanitize:
-            self._input_sanitize[data_point_key] = {"type_value": "bool"}
+        if dp_key not in self._input_sanitize:
+            self._input_sanitize[dp_key] = {"type_value": "bool"}
             self._output_type = "bool"
 
-        input_sanitize = self._input_sanitize[data_point_key]
+        input_sanitize = self._input_sanitize[dp_key]
         if input_sanitize["type_value"] == "bool":
             return payload_bool(payload)
         if input_sanitize["type_value"] == "str":
