@@ -396,7 +396,7 @@ class TuyaMQTT:
         if not device.is_valid:
             return
         self.dict_entities[device.key] = device
-        # self._start_entity_thread(device.key, device)
+        self._start_entity_thread(device.key, device)
 
     def _handle_command_message(self, message):
 
