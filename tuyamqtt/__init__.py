@@ -139,6 +139,13 @@ class TuyaMQTTEntity(threading.Thread):
         # We're in TuyaClient's context, queue a call to tuyaclient.status
         self.command_queue.put((self.request_status, ("mqtt", True)))
 
+    def _mqtt_publish(self, topic: str, subtopic: str, payload: str):
+
+        logger.debug("(%s) ->publish %s/%s", self.entity.ip_address, topic, subtopic)
+        self.mqtt_client.publish(
+            f"{topic}/{subtopic}", payload,
+        )
+
     # TODO: move all data processing functions to Device
     def _process_data(self, data: dict, via: str, force_mqtt: bool = False):
 
@@ -151,7 +158,8 @@ class TuyaMQTTEntity(threading.Thread):
             logger.debug(
                 "(%s) _process_data %s : %s", self.entity.ip_address, dps_key, dps_value
             )
-
+            # TODO: direct handling of data should be done in Device
+            # data access only through getters / setters
             if data_point_key not in self.entity.attributes["dps"]:
                 self.entity.attributes["dps"][data_point_key] = None
             if data_point_key not in self.entity.attributes["via"]:
@@ -159,30 +167,20 @@ class TuyaMQTTEntity(threading.Thread):
 
             if dps_value != self.entity.attributes["dps"][data_point_key] or force_mqtt:
                 changed = True
+
                 self.entity.attributes["dps"][data_point_key] = dps_value
-
-                logger.debug(
-                    "(%s) ->publish %s/state", self.entity.ip_address, data_point_topic
-                )
-                self.mqtt_client.publish(
-                    f"{data_point_topic}/state", bool_payload(self.config, dps_value),
-                )
-
                 self.entity.attributes["via"][data_point_key] = via
+                self._mqtt_publish(
+                    data_point_topic, "state", bool_payload(self.config, dps_value)
+                )
 
                 attr_item = {
                     "dps": self.entity.attributes["dps"][data_point_key],
                     "via": self.entity.attributes["via"][data_point_key],
                     "time": time.time(),
                 }
-
-                logger.debug(
-                    "(%s) ->publish %s/attributes",
-                    self.entity.ip_address,
-                    data_point_topic,
-                )
-                self.mqtt_client.publish(
-                    f"{data_point_topic}/attributes", json.dumps(attr_item),
+                self._mqtt_publish(
+                    data_point_topic, "attributes", json.dumps(attr_item)
                 )
 
         if changed:
@@ -192,12 +190,7 @@ class TuyaMQTTEntity(threading.Thread):
                 "time": time.time(),
             }
 
-            logger.debug(
-                "(%s) ->publish %s/attributes",
-                self.entity.ip_address,
-                (self.mqtt_topic),
-            )
-            self.mqtt_client.publish(f"{self.mqtt_topic}/attributes", json.dumps(attr))
+            self._mqtt_publish(self.mqtt_topic, "attributes", json.dumps(attr))
 
     def on_tuya_status(self, data: dict, status_from: str):
         """Tuya status message callback."""
@@ -421,13 +414,12 @@ class TuyaMQTT:
     def on_mqtt_message(self, client, userdata, message):
         """MQTT message callback, executed in the MQTT client's context."""
         topic_parts = message.topic.split("/")
-
+        # print(message.topic)
         if topic_parts[1] == "discovery":
             self._handle_discover_message(message)
             return
         # will be removed eventually
-
-        if message.topic[-7:] == "command":
+        if len(topic_parts) == 6 and topic_parts[5] == "command":
             self._handle_command_message(message)
 
     def main_loop(self):
