@@ -53,9 +53,7 @@ setup(
     url=f"https://github.com/TradeFace/{PACKAGE_NAME}/",
     scripts=[f"scripts/{PACKAGE_NAME}"],
     author_email="",
-    data_files=[
-        ("etc", ["etc/tuyamqtt.conf", "etc/tuyamqtt.service", "etc/Makefile"]),
-    ],
+    data_files=[("etc", ["etc/tuyamqtt.conf", "etc/tuyamqtt.service"]),],
     license="Unlicense",
     python_requires=">=3.6",
     classifiers=[
