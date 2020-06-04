@@ -6,7 +6,7 @@ import queue
 import threading
 from .configure import logger
 from .device import Device
-import database
+from tuyamqtt import database
 from tuyaface.tuyaclient import TuyaClient
 
 
