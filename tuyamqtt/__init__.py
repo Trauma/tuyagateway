@@ -1,404 +1,467 @@
+"""TuyaMQTT."""
 import time
 import paho.mqtt.client as mqtt
 import json
-from os import path
 import queue
-from threading import Thread
-import logging
-
-import database as database
-
-if True:
-    import tuyaface
-    from tuyaface.tuyaclient import TuyaClient
-else:
-    # for local testing tuyaface
-    import tuya.tuyaface as tuyaface
-    from tuya.tuyaface.tuyaclient import TuyaClient
-
-loglevel=logging.INFO
-#loglevel=logging.DEBUG
-logging.basicConfig(format='%(asctime)s %(levelname)-8s (%(threadName)s) [%(name)s] %(message)s', level=loglevel)
-logger = logging.getLogger(__name__)
+import threading
+from .configure import logger
+from .device import Device
+import database
+from tuyaface.tuyaclient import TuyaClient
 
 
 def connack_string(state):
-
+    """Return mqtt connection string."""
     states = [
-        'Connection successful',
-        'Connection refused - incorrect protocol version',
-        'Connection refused - invalid client identifier',
-        'Connection refused - server unavailable',
-        'Connection refused - bad username or password',
-        'Connection refused - not authorised'
+        "Connection successful",
+        "Connection refused - incorrect protocol version",
+        "Connection refused - invalid client identifier",
+        "Connection refused - server unavailable",
+        "Connection refused - bad username or password",
+        "Connection refused - not authorised",
     ]
     return states[state]
 
 
-def payload_bool(payload:str):
-
-    str_payload = str(payload.decode("utf-8"))
-    if str_payload == 'True' or str_payload == 'ON' or str_payload == '1':
-        return True       
-    elif str_payload == 'False' or str_payload == 'OFF' or str_payload == '0':
-        return False    
-    return payload
-
-
-def bool_payload(config:dict, boolvalue:bool):
-
+def bool_payload(config: dict, boolvalue: bool):
+    """Convert boolean to payload value."""
+    # TODO: get from entity
     if boolvalue:
-        return config['General']['payload_on']
-    return config['General']['payload_off']
+        return config["General"]["payload_on"]
+    return config["General"]["payload_off"]
 
 
-def bool_availability(config:dict, boolvalue:bool):
-
+def bool_availability(config: dict, boolvalue: bool):
+    """Convert boolean to payload value."""
+    # TODO: get from entity
     if boolvalue:
-        return config['General']['availability_online']
-    return config['General']['availability_offline']
+        return config["General"]["availability_online"]
+    return config["General"]["availability_offline"]
 
 
-class TuyaMQTTEntity(Thread):
+class TuyaMQTTEntity(threading.Thread):
+    """Run thread for device."""
 
     delay = 0.1
 
-    def __init__(self, key, entity, parent):        
- 
-        Thread.__init__(self)
+    def __init__(self, key: str, entity: Device, parent):
+        """Initialize TuyaMQTTEntity."""
+        super().__init__()
         self.key = key
-      
+        self.name = key  # Set thread name to key
+
         self.entity = entity
         self.parent = parent
-        self.config = self.parent.config 
+        self.config = self.parent.config
 
-        self.mqtt_topic = f"{self.config['General']['topic']}/{entity['protocol']}/{entity['deviceid']}/{entity['localkey']}/{entity['ip']}"
-          
-        self.mqtt_connected = False
+        self.mqtt_topic = entity.mqtt_topic
+
         self.availability = False
-        self.client = None
+        self.tuya_client = None
+        self.stop = threading.Event()
+        self.mqtt_client = mqtt.Client()
 
         self.command_queue = queue.Queue()
 
+    def mqtt_connect(self):
+        """Create MQTT client."""
+        self.mqtt_client.enable_logger()
+        if self.config["MQTT"]["user"] and self.config["MQTT"]["pass"]:
+            self.mqtt_client.username_pw_set(
+                self.config["MQTT"]["user"], self.config["MQTT"]["pass"]
+            )
+        self.mqtt_client.will_set(
+            f"{self.mqtt_topic}/availability",
+            bool_availability(self.config, False),
+            retain=True,
+        )
+        self.mqtt_client.connect_async(
+            self.config["MQTT"].get("host", "127.0.0.1"),
+            int(self.config["MQTT"].get("port", 1883)),
+            60,
+        )
+        self.mqtt_client.on_connect = self.on_mqtt_connect
+        self.mqtt_client.on_message = self.on_mqtt_message
+        self.mqtt_client.loop_start()
 
-    def mqtt_connect(self): 
+    def on_mqtt_message(self, client, userdata, message):
+        """MQTT message callback, executed in the MQTT client's context."""
 
-        try:
-            self.mqtt_client = mqtt.Client()
-            self.mqtt_client.enable_logger()
-            self.mqtt_client.username_pw_set(self.config['MQTT']['user'], self.config['MQTT']['pass'])
-            self.mqtt_client.will_set(f"{self.mqtt_topic}/availability" , bool_availability(self.config, False), retain=True)
-            self.mqtt_client.connect(self.config['MQTT']['host'], int(self.config['MQTT']['port']), 60)
-            self.mqtt_client.on_connect = self.on_connect
-            self.mqtt_client.loop_start()   
-            self.mqtt_client.on_message = self.on_message
+        if message.topic[-7:] != "command":
+            return
 
-        except Exception as ex:
-            logger.warning('(%s) Failed to connect to MQTT Broker %s', self.entity['ip'], ex)
-            self.mqtt_connected = False
-
-
-    def on_message(self, client, userdata, message):      
-
-        if message.topic[-7:] != 'command':
-            return   
-
-        logging.debug("(%s) topic %s retained %s message received %s", self.entity['ip'], message.topic,message.retain,str(message.payload.decode("utf-8")))
+        logger.debug(
+            "(%s) topic %s retained %s message received %s",
+            self.entity.ip_address,
+            message.topic,
+            message.retain,
+            str(message.payload.decode("utf-8")),
+        )
 
         # We're in the MQTT client's context, queue a call to handle the message
-        self.command_queue.put((self._handle_mqtt_message, (message, )))
-
+        self.command_queue.put((self._handle_mqtt_message, (message,)))
 
     def _handle_mqtt_message(self, message):
 
-        entityParts = message.topic.split("/")  
-        dps_key = str(entityParts[5]) #will give problem with custom topics
+        entity_parts = message.topic.split("/")
+        if entity_parts[len(entity_parts) - 2].isnumeric():
+            dp_key = int(entity_parts[len(entity_parts) - 2])
+            # payload in bytes
+            self.entity.set_mqtt_message(message.payload, dp_key)
+            payload = self.entity.get_tuya_payload(dp_key)
+            self.set_state(dp_key, payload)
+            return
+        # should accept json
+        self.entity.set_mqtt_message(message.payload)
+        payload = self.entity.get_tuya_payload()
+        self.set_status(payload)
 
-        if dps_key not in self.entity['attributes']['dps']:
-            self._set_dps(dps_key, None)
-        if dps_key not in self.entity['attributes']['via']:
-            self._set_via(dps_key, 'mqtt')
-        self.set_state(dps_key, payload_bool(message.payload))
-
-
-    def on_connect(self, client, userdata, flags, rc):
-
-        logger.info("MQTT Connection state: %s for %s" % (connack_string(rc), self.mqtt_topic))
+    def on_mqtt_connect(self, client, userdata, flags, return_code):
+        """MQTT connect callback, executed in the MQTT client's context."""
+        logger.info(
+            "MQTT Connection state: %s for %s",
+            connack_string(return_code),
+            self.mqtt_topic,
+        )
         client.subscribe(f"{self.mqtt_topic}/#")
-        self.mqtt_connected = True
 
-
-    def _set_dps(self, dps_key, dps_value:str):
-
-        self.entity['attributes']['dps'][dps_key] = dps_value
-        self.parent.set_entity_dps_item(self.key, dps_key, dps_value) 
-
-
-    def _set_via(self, dps_key, via:str):
-
-        self.entity['attributes']['via'][dps_key] = via
-        self.parent.set_entity_via_item(self.key, dps_key, via) 
-
-
-    def _set_availability(self, availability:bool):
+    def _set_availability(self, availability: bool):
 
         if availability != self.availability:
             self.availability = availability
-            logger.debug("->publish %s/availability" % self.mqtt_topic)     
-            self.mqtt_client.publish(f"{self.mqtt_topic}/availability" , bool_availability(self.config, availability), retain=True)
+            logger.debug("->publish %s/availability", self.mqtt_topic)
+            self.mqtt_client.publish(
+                f"{self.mqtt_topic}/availability",
+                bool_availability(self.config, availability),
+                retain=True,
+            )
 
-
-    def _process_data(self, data:dict, via:str, force_mqtt:bool = False):
-
-        changed = force_mqtt
-        
-        for dps_key, dps_value in data['dps'].items():
-            
-            if dps_key not in self.entity['attributes']['dps']:
-                self._set_dps(dps_key, None)
-            logger.debug("(%s) _process_data %s : %s", self.entity['ip'], dps_key, dps_value)
-
-            if dps_key not in self.entity['attributes']['via']:
-                self._set_via(dps_key, 'init')
-            if dps_value != self.entity['attributes']['dps'][dps_key] or force_mqtt:
-                changed = True
-                self._set_dps(dps_key, dps_value) 
-
-                logger.debug("(%s) ->publish %s/%s/state", self.entity['ip'], self.mqtt_topic, dps_key)
-                self.mqtt_client.publish(f"{self.mqtt_topic}/{dps_key}/state",  bool_payload(self.config, dps_value))
-                
-                if via != self.entity['attributes']['via'][dps_key]:                        
-                    self._set_via(dps_key, via)
-                
-                attr_item = {
-                    'dps': self.entity['attributes']['dps'][dps_key], 
-                    'via': self.entity['attributes']['via'][dps_key],
-                    'time': time.time()
-                }
-
-                logger.debug("(%s) ->publish %s/%s/attributes", self.entity['ip'], self.mqtt_topic, dps_key)
-                self.mqtt_client.publish(f"{self.mqtt_topic}/{dps_key}/attributes",  json.dumps(attr_item))
-        
-        if changed:
-            attr = {
-                'dps': self.entity['attributes']['dps'], 
-                'via': self.entity['attributes']['via'],
-                'time': time.time()
-            } 
-            
-            logger.debug("(%s) ->publish %s/attributes", self.entity['ip'], (self.mqtt_topic))
-            self.mqtt_client.publish(f"{self.mqtt_topic}/attributes",  json.dumps(attr))
-
-    def on_status(self, data:dict):
-
-        self._process_data(data, 'tuya')
-
-
-    def on_connection(self, connected: bool):
-
+    def on_tuya_connected(self, connected: bool):
+        """Tuya connection state updated."""
         self._set_availability(connected)
         # We're in TuyaClient's context, queue a call to tuyaclient.status
-        self.command_queue.put((self.status, ('mqtt', True)))
+        self.command_queue.put((self.request_status, ("mqtt", True)))
 
+    def _mqtt_publish(self, topic: str, subtopic: str, payload: str):
 
-    def status(self, via:str = 'tuya', force_mqtt:bool = False):
-            
+        logger.debug("(%s) ->publish %s/%s", self.entity.ip_address, topic, subtopic)
+        self.mqtt_client.publish(
+            f"{topic}/{subtopic}", payload,
+        )
+
+    # TODO: move all data processing functions to Device
+    def _process_data(self, data: dict, via: str, force_mqtt: bool = False):
+
+        changed = force_mqtt
+
+        for dps_key, dps_value in data["dps"].items():
+            dp_key = int(dps_key)
+            data_point_topic = f"{self.mqtt_topic}/{dp_key}"
+
+            logger.debug(
+                "(%s) _process_data %s : %s", self.entity.ip_address, dps_key, dps_value
+            )
+            # TODO: direct handling of data should be done in Device
+            # data access only through getters / setters
+            if dp_key not in self.entity.attributes["dps"]:
+                self.entity.attributes["dps"][dp_key] = None
+            if dp_key not in self.entity.attributes["via"]:
+                self.entity.attributes["via"][dp_key] = "init"
+
+            if dps_value != self.entity.attributes["dps"][dp_key] or force_mqtt:
+                changed = True
+
+                self.entity.attributes["dps"][dp_key] = dps_value
+                self.entity.attributes["via"][dp_key] = via
+                self._mqtt_publish(
+                    data_point_topic, "state", bool_payload(self.config, dps_value)
+                )
+
+                attr_item = {
+                    "dps": self.entity.attributes["dps"][dp_key],
+                    "via": self.entity.attributes["via"][dp_key],
+                    "time": time.time(),
+                }
+                self._mqtt_publish(
+                    data_point_topic, "attributes", json.dumps(attr_item)
+                )
+
+        if changed:
+            attr = {
+                "dps": self.entity.attributes["dps"],
+                "via": self.entity.attributes["via"],
+                "time": time.time(),
+            }
+
+            self._mqtt_publish(self.mqtt_topic, "attributes", json.dumps(attr))
+
+    def on_tuya_status(self, data: dict, status_from: str):
+        """Tuya status message callback."""
+        via = "tuya"
+        # this is never true :/
+        if status_from == "command":
+            via = "mqtt"
+        self.entity.set_tuya_message(data, via=via)
+        self._process_data(data, via)
+
+    def request_status(self, via: str = "tuya", force_mqtt: bool = False):
+        """Poll Tuya device for status."""
         try:
-            data = self.client.status()
-
+            data = self.tuya_client.status()
             if not data:
-                self._set_availability(False)
                 return
-       
+            self.entity.set_tuya_message(data, via=via)
             self._process_data(data, via, force_mqtt)
-            self._set_availability(True)
-
-        except Exception:            
-            logger.exception('(%s) status request error', self.entity['ip'])
-
-            self._set_availability(False)
-
-
-    def set_state(self, dps_item, payload):
-
-        try:  
-            result = self.client.set_state(payload, dps_item)
-            if not result:
-                logger.error('(%s) set_state request on topic %s failed', self.entity['ip'], self.mqtt_topic)
-
         except Exception:
-            logger.error('(%s) set_state request on topic %s', self.entity['ip'], self.mqtt_topic, exc_info=True)    
+            logger.exception("(%s) status request error", self.entity.ip_address)
 
+    def _log_request_error(self, request_type: str):
+        logger.error(
+            "(%s) %s request on topic %s failed",
+            self.entity.ip_address,
+            request_type,
+            self.mqtt_topic,
+            exc_info=True,
+        )
 
-    def run(self):        
-   
-        self.client = TuyaClient(self.entity, self.on_status, self.on_connection)
-        self.client.start()
-        # time_unset_reset = 0  
-       
-        # return
-        
+    def set_state(self, dps_item: int, payload):
+        """Set state of Tuya device."""
+        try:
+            result = self.tuya_client.set_state(payload, dps_item)
+            if not result:
+                self._log_request_error("set_state")
+        except Exception:
+            self._log_request_error("set_state")
 
-        while True:  
+    def set_status(self, payload):
+        """Set status of Tuya device."""
+        logger.warning(
+            "(%s) set_status not implemented yet %s failed",
+            self.entity.ip_address,
+            self.mqtt_topic,
+        )
+        # try:
+        #     result = self.tuya_client.set_status(payload)
+        #     if not result:
+        #         self._log_request_error("set_status")
+        # except Exception:
+        #     self._log_request_error("set_status")
 
-            if not self.mqtt_connected:
-                self.mqtt_connect()
-                time.sleep(1)      
+    def run(self):
+        """Tuya MQTTEntity main loop."""
+        self.mqtt_connect()
+        self.tuya_client = TuyaClient(
+            self.entity.get_legacy_device(), self.on_tuya_status, self.on_tuya_connected
+        )
+        self.tuya_client.start()
 
-            # if time.time() > time_run_availability:               
-            #     time_run_availability = time.time()+15   
-            #     logger.debug("->publish %s/availability" % self.mqtt_topic)     
-            #     self.mqtt_client.publish("%s/availability" % self.mqtt_topic, bool_availability(self.config, self.availability)) 
-                    
-
+        while not self.stop.is_set():
             while not self.command_queue.empty():
                 command, args = self.command_queue.get()
-                result = command(*args)
+                command(*args)
 
-            time.sleep(self.delay)      
+            time.sleep(self.delay)
 
+    def stop_entity(self):
+        """Shut down MQTT client, TuyaClient and worker thread."""
+        logger.info("Stopping TuyaMQTTEntity %s", self.name)
+        self.tuya_client.stop_client()
+        self.mqtt_client.loop_stop()
+        self.stop.set()
+        self.join()
 
 
 class TuyaMQTT:
-
+    """Manages a set of TuyaMQTTEntities."""
 
     delay = 0.1
     config = []
-    dictOfEntities = {}
-
+    dict_entities = {}
+    worker_threads = {}
 
     def __init__(self, config):
-
+        """Initialize TuyaMQTTEntity."""
         self.config = config
 
-        # self.entities_file = config['General']['entity_file']
-        self.mqtt_topic = config['General']['topic']
-        self.mqtt_connected = False
+        self.mqtt_topic = "tuya"
+        self.mqtt_client = mqtt.Client()
 
+        # TODO remove db
         self.database = database
-        self.database.setup()            
+        self.database.setup()
 
+    def mqtt_connect(self):
+        """Create MQTT client."""
+        self.mqtt_client.enable_logger()
+        if self.config["MQTT"]["user"] and self.config["MQTT"]["pass"]:
+            self.mqtt_client.username_pw_set(
+                self.config["MQTT"]["user"], self.config["MQTT"]["pass"]
+            )
+        self.mqtt_client.connect_async(
+            self.config["MQTT"].get("host", "127.0.0.1"),
+            int(self.config["MQTT"].get("port", 1883)),
+            60,
+        )
+        self.mqtt_client.on_connect = self.on_mqtt_connect
+        self.mqtt_client.on_message = self.on_mqtt_message
+        self.mqtt_client.loop_start()
 
-    def mqtt_connect(self): 
-
-        try:
-            self.mqtt_client = mqtt.Client()
-            self.mqtt_client.enable_logger()
-            self.mqtt_client.username_pw_set(self.config['MQTT']['user'], self.config['MQTT']['pass'])
-            self.mqtt_client.connect(self.config['MQTT']['host'], int(self.config['MQTT']['port']), 60)
-            self.mqtt_client.on_connect = self.on_connect
-            self.mqtt_client.loop_start()   
-            self.mqtt_client.on_message = self.on_message
-        except Exception:
-            logger.info('Failed to connect to MQTT Broker')
-            self.mqtt_connected = False
-   
-
-    def on_connect(self, client, userdata, flags, rc):
-
-        logger.info("MQTT Connection state: %s for topic %s",connack_string(rc), self.mqtt_topic)
+    def on_mqtt_connect(self, client, userdata, flags, return_code):
+        """Write something useful."""
+        logger.info(
+            "MQTT Connection state: %s for topic %s",
+            connack_string(return_code),
+            self.mqtt_topic,
+        )
         client.subscribe(f"{self.mqtt_topic}/#")
-        self.mqtt_connected = True
 
+    def write_entities(self):
+        """Write entities to database."""
+        for (
+            key,  # pylint: disable=unused-variable
+            device,
+        ) in self.dict_entities.items():
+            self.database.upsert_entity(device.get_legacy_device())
 
-    def write_entity(self):
+    def read_entities(self):
+        """Read entities from database."""
+        for (key, legacy_device) in self.database.get_entities().items():
+            device = Device("", True)
+            device.set_legacy_device(legacy_device)
+            self.dict_entities[key] = device
 
-        self.database.upsert_entities(self.dictOfEntities)
+    def add_entity_dict_topic(self, device):
+        """Write something useful."""
+        entity_keys = self._find_entity_keys(device.key, device.ip_address)
+        if len(entity_keys) != 0:
+            return None
 
+        self.dict_entities[device.key] = device
+        self.database.insert_entity(device.get_legacy_device())
+        return device.key
 
-    def read_entity(self):
+    def _start_entity_thread(self, key, entity):
+        thread_object = TuyaMQTTEntity(key, entity, self)
+        thread_object.setName(f"tuyamqtt_{key}")
+        thread_object.start()
+        self.worker_threads[key] = thread_object
 
-        self.dictOfEntities = self.database.get_entities()
+    def _find_entity_keys(self, key: str, ip_address=None):
 
+        keys = []
+        for ent_key, item in self.dict_entities.items():
+            if item.ip_address == ip_address:
+                keys.append(ent_key)
 
-    def add_entity_dict(self, entityRaw, retain):
-        
-        entityParts = entityRaw.split("/")
+        if key in self.dict_entities:
+            keys.append(key)
 
-        key = entityParts[2]
+        return keys
 
-        if key in self.dictOfEntities:
-            return False
-        
-        entity = {
-            'protocol': entityParts[1],
-            'deviceid': entityParts[2],
-            'localkey': entityParts[3],
-            'ip': entityParts[4],
-            'topic': key,            
-            'attributes': {
-                'dps': {},
-                'via': {}
-            },
-            'status_poll': 5.0,
-            'hass_discover': False
-        }
+    def _handle_discover_message(self, message):
+        """Handle discover message from GismoCaster.
 
-        self.dictOfEntities[key] = entity
-        # self.write_entity()
-        self.database.insert_entity(entity)
-        return key
-        
+        If a discover message arrives we kill the thread for the
+        device (if any), and restart with new config (if any)
+        """
 
-    def get_entity(self, key):
+        logger.info(
+            "discovery message received %s topic %s retained %s ",
+            str(message.payload.decode("utf-8")),
+            message.topic,
+            message.retain,
+        )
+        # TODO: based on GC config add reply handler to _start_entity_thread (e.g. HA/Homie)
+        # defaults to HA
 
-        return self.dictOfEntities[key]
+        device = Device(message, False)
+        entity_keys = self._find_entity_keys(device.key, device.ip_address)
 
+        for entity_key in entity_keys:
+            self.database.delete_entity(
+                self.dict_entities[entity_key].get_legacy_device()
+            )
 
-    def set_entity_dps_item(self, key, dps, value):
+            if entity_key in self.worker_threads:
+                try:
+                    self.worker_threads[entity_key].stop_entity()
+                    self.worker_threads[entity_key].join()
+                    # del self.dict_entities[entity_key]
+                except Exception:
+                    pass
 
-        self.dictOfEntities[key]['attributes']['dps'][dps] = value   
-        self.database.update_entity(self.dictOfEntities[key])
+        if not device.is_valid:
+            return
+        self.dict_entities[device.key] = device
+        self._start_entity_thread(device.key, device)
 
+    def _handle_command_message(self, message):
 
-    def set_entity_via_item(self, key, dps, value):
+        device = Device(message, True)
 
-        self.dictOfEntities[key]['attributes']['via'][dps] = value
-        self.database.update_entity(self.dictOfEntities[key])
-    
+        key = self.add_entity_dict_topic(device)
+        if not key:
+            return
 
-    def on_message(self, client, userdata, message):                   
+        logger.info(
+            "topic config message received %s topic %s retained %s ",
+            str(message.payload.decode("utf-8")),
+            message.topic,
+            message.retain,
+        )
+        self._start_entity_thread(device.key, device)
 
-        if message.topic[-7:] != 'command':
-            return   
-        
-        key = self.add_entity_dict(message.topic, message.retain)
+    # TODO: test this, do we still need the db
+    def _handle_command_message2(self, message):
 
-        if key:
-            logger.info("message received %s topic %s retained %s ", str(message.payload.decode("utf-8")), message.topic, message.retain)
-            entity = self.get_entity(key)
-            
-            myThreadOb1 = TuyaMQTTEntity(key, entity, self)     
-            myThreadOb1.setName(key)    
-            myThreadOb1.start()
+        device = Device(message, True)
 
+        entity_keys = self._find_entity_keys(device.key, device.ip_address)
+        if len(entity_keys) != 0:
+            return None
+
+        self.dict_entities[device.key] = device
+
+        logger.info(
+            "topic config message received %s topic %s retained %s ",
+            str(message.payload.decode("utf-8")),
+            message.topic,
+            message.retain,
+        )
+        self._start_entity_thread(device.key, device)
+
+    def on_mqtt_message(self, client, userdata, message):
+        """MQTT message callback, executed in the MQTT client's context."""
+        topic_parts = message.topic.split("/")
+        # print(message.topic)
+        if topic_parts[1] == "discovery":
+            self._handle_discover_message(message)
+            return
+        # will be removed eventually
+        if len(topic_parts) == 6 and topic_parts[5] == "command":
+            self._handle_command_message(message)
 
     def main_loop(self):
+        """Send / receive from tuya devices."""
 
-        """
-        primary loop to send / receive from tuya devices
-        """
-        self.read_entity()
-     
-        tpool = []
-        for key,entity in self.dictOfEntities.items():
-            myThreadOb1 = TuyaMQTTEntity(key, entity, self)     
-            myThreadOb1.setName(key)    
-            myThreadOb1.start()
-            tpool.append(myThreadOb1)
- 
-        time_run_save = 0
-        
-        while True: 
+        time_run_save = time.time() + 60
+        try:
 
-            if not self.mqtt_connected:
-                self.mqtt_connect()
-                time.sleep(2)
-                continue                      
-          
-            if time.time() > time_run_save:
-                self.write_entity()
-                time_run_save = time.time()+300
+            self.read_entities()
+            for key, device in self.dict_entities.items():
+                self._start_entity_thread(key, device)
+            # wait for threads to be started before
+            # opening up for changes
+            self.mqtt_connect()
 
-            time.sleep(self.delay)           
+            while True:
+                if time.time() > time_run_save:
+                    # should really be locking dict_entities
+                    self.write_entities()
+                    time_run_save = time.time() + 300
 
+                time.sleep(self.delay)
+        except KeyboardInterrupt:
+            for key, thread in self.worker_threads.items():
+                thread.stop_entity()
+                thread.join()
