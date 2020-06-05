@@ -53,6 +53,7 @@ class TuyaMQTTEntity(threading.Thread):
         self.entity = entity
         self.parent = parent
         self.config = self.parent.config
+        self.get_ha_config = self.parent.get_ha_config
 
         self.mqtt_topic = entity.mqtt_topic
 
@@ -86,7 +87,6 @@ class TuyaMQTTEntity(threading.Thread):
 
     def on_mqtt_message(self, client, userdata, message):
         """MQTT message callback, executed in the MQTT client's context."""
-
         if message.topic[-7:] != "command":
             return
 
@@ -103,17 +103,26 @@ class TuyaMQTTEntity(threading.Thread):
 
     def _handle_mqtt_message(self, message):
 
+        # command from ha always str
+        # device dp can be "any" type
+        # convert string_<def dp_type>(payload)
+
         entity_parts = message.topic.split("/")
         if entity_parts[len(entity_parts) - 2].isnumeric():
             dp_key = int(entity_parts[len(entity_parts) - 2])
             # payload in bytes
-            self.entity.set_mqtt_message(message.payload, dp_key)
-            payload = self.entity.get_tuya_payload(dp_key)
+            self.entity.set_mqtt_message(message.payload, dp_key, "command")
+            payload = self.entity.get_tuya_data(dp_key)
             self.set_state(dp_key, payload)
             return
-        # should accept json
-        self.entity.set_mqtt_message(message.payload)
-        payload = self.entity.get_tuya_payload()
+
+        try:
+            payload_dict = json.loads(message.payload)
+        except Exception:
+            logger.exception("(%s) MQTT message, invalid json", self.entity.ip_address)
+
+        self.entity.set_mqtt_message(payload_dict)
+        payload = self.entity.get_tuya_data()
         self.set_status(payload)
 
     def on_mqtt_connect(self, client, userdata, flags, return_code):
@@ -195,14 +204,39 @@ class TuyaMQTTEntity(threading.Thread):
 
             self._mqtt_publish(self.mqtt_topic, "attributes", json.dumps(attr))
 
+    def _handle_status(self):
+
+        sane_reply = self.entity.get_mqtt_reply(output_topic="attributes")
+        if True not in sane_reply["changed"].values():
+            return
+        self._mqtt_publish(self.mqtt_topic, "attributes", json.dumps(sane_reply))
+
+        for dp_key, dp_value in sane_reply["changed"].items():
+            if not dp_value:
+                continue
+
+            data_point_topic = f"{self.mqtt_topic}/{dp_key}"
+            self._mqtt_publish(
+                data_point_topic,
+                "attributes",
+                json.dumps(
+                    self.entity.get_mqtt_reply(dp_key, output_topic="attributes")
+                ),
+            )
+            self._mqtt_publish(
+                data_point_topic,
+                "state",
+                self.entity.get_mqtt_reply(dp_key, output_topic="state"),
+            )
+
     def on_tuya_status(self, data: dict, status_from: str):
         """Tuya status message callback."""
         via = "tuya"
-        # this is never true :/
         if status_from == "command":
             via = "mqtt"
         self.entity.set_tuya_message(data, via=via)
-        self._process_data(data, via)
+        self._handle_status()
+        # self._process_data(data_sane, via)
 
     def request_status(self, via: str = "tuya", force_mqtt: bool = False):
         """Poll Tuya device for status."""
@@ -211,7 +245,8 @@ class TuyaMQTTEntity(threading.Thread):
             if not data:
                 return
             self.entity.set_tuya_message(data, via=via)
-            self._process_data(data, via, force_mqtt)
+            self._handle_status()
+            # self._process_data(data, via, force_mqtt)
         except Exception:
             logger.exception("(%s) status request error", self.entity.ip_address)
 
@@ -278,6 +313,7 @@ class TuyaMQTT:
     config = []
     dict_entities = {}
     worker_threads = {}
+    _ha_config = {}
 
     def __init__(self, config):
         """Initialize TuyaMQTTEntity."""
@@ -313,7 +349,7 @@ class TuyaMQTT:
             connack_string(return_code),
             self.mqtt_topic,
         )
-        client.subscribe(f"{self.mqtt_topic}/#")
+        client.subscribe((f"{self.mqtt_topic}/#", 0))
 
     def write_entities(self):
         """Write entities to database."""
@@ -371,8 +407,7 @@ class TuyaMQTT:
             message.topic,
             message.retain,
         )
-        # TODO: based on GC config add reply handler to _start_entity_thread (e.g. HA/Homie)
-        # defaults to HA
+
         try:
             discover_dict = json.loads(message.payload)
         except Exception as ex:
@@ -451,9 +486,33 @@ class TuyaMQTT:
         )
         self._start_entity_thread(device.key, device)
 
+    def _handle_ha_config(self, message):
+        print(message.topic, message.payload)
+        topic_parts = message.topic.split("/")
+        try:
+            ha_dict = json.loads(message.payload)
+        except Exception as ex:
+            print(ex)
+
+        if topic_parts[2] != ha_dict["uniq_id"]:
+            return
+        id_parts = ha_dict["uniq_id"].split("_")
+        if id_parts[0] not in ha_dict["device"]["identifiers"]:
+            return
+
+        self._ha_config[id_parts[0]] = {}
+        self._ha_config[id_parts[0]][id_parts[1]] = ha_dict
+
     def on_mqtt_message(self, client, userdata, message):
         """MQTT message callback, executed in the MQTT client's context."""
         topic_parts = message.topic.split("/")
+        # print(topic_parts)
+        if (
+            topic_parts[0] == "homeassistant"
+            and topic_parts[len(topic_parts) - 1] == "config"
+        ):
+            self._handle_ha_config(message)
+            return
 
         if topic_parts[1] == "discovery":
             self._handle_discover_message(message)
