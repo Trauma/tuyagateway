@@ -53,7 +53,7 @@ class TuyaMQTTEntity(threading.Thread):
         self.entity = entity
         self.parent = parent
         self.config = self.parent.config
-        self.get_ha_config = self.parent.get_ha_config
+        # self.get_ha_config = self.parent.get_ha_config
 
         self.mqtt_topic = entity.mqtt_topic
 
@@ -111,8 +111,8 @@ class TuyaMQTTEntity(threading.Thread):
         if entity_parts[len(entity_parts) - 2].isnumeric():
             dp_key = int(entity_parts[len(entity_parts) - 2])
             # payload in bytes
-            self.entity.set_mqtt_message(message.payload, dp_key, "command")
-            payload = self.entity.get_tuya_data(dp_key)
+            self.entity.set_mqtt_request(message.payload, dp_key, "command")
+            payload = self.entity.get_tuya_payload(dp_key)
             self.set_state(dp_key, payload)
             return
 
@@ -121,8 +121,8 @@ class TuyaMQTTEntity(threading.Thread):
         except Exception:
             logger.exception("(%s) MQTT message, invalid json", self.entity.ip_address)
 
-        self.entity.set_mqtt_message(payload_dict)
-        payload = self.entity.get_tuya_data()
+        self.entity.set_mqtt_request(payload_dict)
+        payload = self.entity.get_tuya_payload()
         self.set_status(payload)
 
     def on_mqtt_connect(self, client, userdata, flags, return_code):
@@ -206,7 +206,7 @@ class TuyaMQTTEntity(threading.Thread):
 
     def _handle_status(self):
 
-        sane_reply = self.entity.get_mqtt_reply(output_topic="attributes")
+        sane_reply = self.entity.get_mqtt_response(output_topic="attributes")
         if True not in sane_reply["changed"].values():
             return
         self._mqtt_publish(self.mqtt_topic, "attributes", json.dumps(sane_reply))
@@ -220,13 +220,13 @@ class TuyaMQTTEntity(threading.Thread):
                 data_point_topic,
                 "attributes",
                 json.dumps(
-                    self.entity.get_mqtt_reply(dp_key, output_topic="attributes")
+                    self.entity.get_mqtt_response(dp_key, output_topic="attributes")
                 ),
             )
             self._mqtt_publish(
                 data_point_topic,
                 "state",
-                self.entity.get_mqtt_reply(dp_key, output_topic="state"),
+                self.entity.get_mqtt_response(dp_key, output_topic="state"),
             )
 
     def on_tuya_status(self, data: dict, status_from: str):
@@ -234,7 +234,7 @@ class TuyaMQTTEntity(threading.Thread):
         via = "tuya"
         if status_from == "command":
             via = "mqtt"
-        self.entity.set_tuya_message(data, via=via)
+        self.entity.set_tuya_payload(data, via=via)
         self._handle_status()
         # self._process_data(data_sane, via)
 
@@ -244,7 +244,7 @@ class TuyaMQTTEntity(threading.Thread):
             data = self.tuya_client.status()
             if not data:
                 return
-            self.entity.set_tuya_message(data, via=via)
+            self.entity.set_tuya_payload(data, via=via)
             self._handle_status()
             # self._process_data(data, via, force_mqtt)
         except Exception:

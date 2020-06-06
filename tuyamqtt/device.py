@@ -1,7 +1,7 @@
 """Device data and validation (WIP)."""
 
 
-def _validate_data_point_config(data_point: dict) -> bool:
+def _validate_dp_config(data_point: dict) -> bool:
 
     if "type_value" not in data_point:
         return False
@@ -26,6 +26,9 @@ def str_bool(payload: str) -> bool:
     return False
 
 
+# TODO: should be mapped to expected topic output
+# could use ha config if we understand the context
+# would make the app a 1 trick pony
 def bool_str(payload: bool) -> str:
     """Convert boolean to string."""
     if payload:
@@ -33,17 +36,17 @@ def bool_str(payload: bool) -> str:
     return "False"
 
 
-def convert(data_input: str, data_output: str, data):
+def convert(input_type: str, output_type: str, data):
     """Select the converter function."""
-    if data_input == "str":
-        if data_output == "bool":
+    if input_type == "str":
+        if output_type == "bool":
             return str_bool(data)
-    if data_input == "bool":
-        if data_output == "str":
+    if input_type == "bool":
+        if output_type == "str":
             return bool_str(data)
-    if data_output == "int":
+    if output_type == "int":
         return int(data)
-    if data_output == "float":
+    if output_type == "float":
         return float(data)
     return data
 
@@ -61,10 +64,10 @@ class Device:
     mqtt_topic = None
     pref_status_cmd = 10
     _topic_parts = []
-    _dp_config_sanitized = {}
+    _validated_dp_config = {}
     _output_type = "bool"
-    _mqtt_data = {}
-    _tuya_data = {}
+    _sanitized_input_data = {}
+    _sanitized_output_data = {}
     _state_data = {}
     _state_changed = False
 
@@ -128,11 +131,9 @@ class Device:
 
         for data_point in gismo_dict["dps"]:
             dp_key = int(data_point["key"])
-            # self.attributes["dps"][dp_key] = None
-            # self.attributes["via"][dp_key] = "mqtt"
 
-            if _validate_data_point_config(data_point):
-                self._dp_config_sanitized[dp_key] = data_point
+            if _validate_dp_config(data_point):
+                self._validated_dp_config[dp_key] = data_point
                 self._init_data_point(dp_key)
 
         self.is_valid = True
@@ -149,50 +150,54 @@ class Device:
         if not self.topic_config:
             self.mqtt_topic = f"tuya/{self.key}"
 
-    def get_tuya_data(self, dp_key: int = None):
+    def get_tuya_payload(self, dp_key: int = None):
         """Get the sanitized Tuya command message payload."""
         if dp_key:
-            return self._get_tuya_dp_data(dp_key)
-        return self._mqtt_data
+            return self._get_tuya_dp_payload(dp_key)
+        return self._sanitized_input_data
 
-    def _get_tuya_dp_data(self, dp_key: int):
+    def _get_tuya_dp_payload(self, dp_key: int):
         """Get the sanitized Tuya command message payload for data point."""
-        return self._mqtt_data[dp_key]
+        return self._sanitized_input_data[dp_key]
 
-    def get_mqtt_reply(self, dp_key: int = None, output_topic: str = "state"):
+    def get_mqtt_response(self, dp_key: int = None, output_topic: str = "state"):
         """Get the sanitized MQTT reply message payload."""
         if output_topic != "attributes":
             if dp_key:
-                return self._get_mqtt_dp_data(dp_key, output_topic)
+                return self._get_mqtt_dp_response(dp_key, output_topic)
             return
 
         if dp_key:
             return {
-                "dps": self._get_mqtt_dp_data(dp_key, output_topic),
+                "dps": self._get_mqtt_dp_response(dp_key, output_topic),
                 "via": self._state_data[dp_key]["via"],
             }
 
-        return_dict = {"via": {}, "dps": {}, "changed": {}}
-        for dp_idx, data in self._tuya_data.items():  # pylint: disable=unused-variable
-            return_dict["dps"][dp_idx] = self._get_mqtt_dp_data(dp_idx, output_topic)
-            return_dict["via"][dp_idx] = self._state_data[dp_idx]["via"]
-            return_dict["changed"][dp_idx] = self._state_data[dp_idx]["changed"]
-        return return_dict
+        attributes_dict = {"via": {}, "dps": {}, "changed": {}}
+        for (
+            dp_idx,
+            data,  # pylint: disable=unused-variable
+        ) in self._sanitized_output_data.items():
+            attributes_dict["dps"][dp_idx] = self._get_mqtt_dp_response(
+                dp_idx, output_topic
+            )
+            attributes_dict["via"][dp_idx] = self._state_data[dp_idx]["via"]
+            attributes_dict["changed"][dp_idx] = self._state_data[dp_idx]["changed"]
+        return attributes_dict
 
-    def _get_mqtt_dp_data(self, dp_key: int, output_topic: str):
+    def _get_mqtt_dp_response(self, dp_key: int, output_topic: str):
         """Get the sanitized MQTT reply message payload for data point."""
-        data_converted = convert(
-            self._dp_config_sanitized[dp_key]["type_value"],
+        return convert(
+            self._validated_dp_config[dp_key]["type_value"],
             self._topic_type_mapping[output_topic],
-            self._tuya_data[dp_key],
+            self._sanitized_output_data[dp_key],
         )
-        return data_converted
 
-    def set_tuya_message(self, data: dict, dp_key: int = None, via: str = "tuya"):
+    def set_tuya_payload(self, data: dict, dp_key: int = None, via: str = "tuya"):
         """Set the Tuya reply message payload."""
 
         if dp_key:
-            self._set_tuya_dp_message(data, dp_key, via)
+            self._set_tuya_dp_payload(data, dp_key, via)
             return
 
         if not isinstance(data, dict):
@@ -201,9 +206,9 @@ class Device:
             raise Exception("No data point values found.")
 
         for (dp_idx, dp_data) in data["dps"].items():
-            self._set_tuya_dp_message(dp_data, int(dp_idx), via)
+            self._set_tuya_dp_payload(dp_data, int(dp_idx), via)
 
-    def _set_tuya_dp_message(self, data: dict, dp_key: int, via: str):
+    def _set_tuya_dp_payload(self, data: dict, dp_key: int, via: str):
         """Set the Tuya reply message payload for data point."""
 
         self._init_data_point(dp_key)
@@ -213,17 +218,17 @@ class Device:
         self._state_data[dp_key]["changed"] = False
         self._state_changed = False
 
-        if sanitized_data != self._tuya_data[dp_key]:
+        if sanitized_data != self._sanitized_output_data[dp_key]:
             self._state_data[dp_key] = {"via": via, "changed": True}
             self._state_changed = True
-            self._tuya_data[dp_key] = sanitized_data
+            self._sanitized_output_data[dp_key] = sanitized_data
             # overwrite old value for next compare
-            self._mqtt_data[dp_key] = sanitized_data
+            self._sanitized_input_data[dp_key] = sanitized_data
 
-    def set_mqtt_message(self, data, dp_key: int = None, input_topic: str = "command"):
+    def set_mqtt_request(self, data, dp_key: int = None, input_topic: str = "command"):
         """Set the MQTT command message payload."""
         if dp_key:
-            self._set_mqtt_dp_message(data, dp_key, input_topic)
+            self._set_mqtt_dp_request(data, dp_key, input_topic)
             return
 
         if not isinstance(data, dict):
@@ -232,24 +237,24 @@ class Device:
             raise Exception("No data point values found.")
 
         for (dp_idx, dp_data) in data["dps"].items():
-            self._set_mqtt_dp_message(dp_data, dp_idx, input_topic)
+            self._set_mqtt_dp_request(dp_data, dp_idx, input_topic)
 
-    def _set_mqtt_dp_message(self, data: bytes, dp_key: int, input_topic: str):
+    def _set_mqtt_dp_request(self, data: bytes, dp_key: int, input_topic: str):
         """Set the MQTT command message payload for data point."""
-
-        data_converted = convert(
-            self._topic_type_mapping[input_topic],
-            self._dp_config_sanitized[dp_key]["type_value"],
-            data,
-        )
-
         self._init_data_point(dp_key)
 
-        self._mqtt_data[dp_key] = self._sanitize_data_point(dp_key, data_converted)
+        self._sanitized_input_data[dp_key] = self._sanitize_data_point(
+            dp_key,
+            convert(
+                self._topic_type_mapping[input_topic],
+                self._validated_dp_config[dp_key]["type_value"],
+                data,
+            ),
+        )
 
     def _sanitize_data_point(self, dp_key: int, payload: bytes):
 
-        input_sanitize = self._dp_config_sanitized[dp_key]
+        input_sanitize = self._validated_dp_config[dp_key]
         if input_sanitize["type_value"] == "bool":
             return bool(payload)
         if input_sanitize["type_value"] == "str":
@@ -267,11 +272,12 @@ class Device:
     def get_legacy_device(self) -> dict:
         """Support for old structure."""
         # TODO: get attributes from sanitized
-        attributes = {"via": {}, "dps": {}, "changed": {}}
-        for dp_key, dp_value in self._tuya_data.items():
-            attributes["via"][dp_key] = self._state_data[dp_key]["via"]
-            attributes["dps"][dp_key] = dp_value
-            attributes["changed"][dp_key] = self._state_data[dp_key]["changed"]
+        # attributes = {"via": {}, "dps": {}, "changed": {}}
+        attributes = self.get_mqtt_response(output_topic="attributes")
+        # for dp_key, dp_value in self._sanitized_output_data.items():
+        #     attributes["via"][dp_key] = self._state_data[dp_key]["via"]
+        #     attributes["dps"][dp_key] = dp_value
+        #     attributes["changed"][dp_key] = self._state_data[dp_key]["changed"]
 
         return {
             "protocol": self.protocol,
@@ -296,17 +302,15 @@ class Device:
         self._set_mqtt_topic()
 
         for dp_key in attributes["dps"]:
-            # self.attributes["dps"][dp_key] = None
-            # self.attributes["via"][dp_key] = "mqtt"
             self._init_data_point(int(dp_key))
 
     def _init_data_point(self, dp_key: int):
 
-        if dp_key not in self._mqtt_data:
-            self._mqtt_data[dp_key] = False
-        if dp_key not in self._tuya_data:
-            self._tuya_data[dp_key] = False
+        if dp_key not in self._sanitized_input_data:
+            self._sanitized_input_data[dp_key] = False
+        if dp_key not in self._sanitized_output_data:
+            self._sanitized_output_data[dp_key] = False
         if dp_key not in self._state_data:
             self._state_data[dp_key] = {"via": "tuya", "changed": False}
-        if dp_key not in self._dp_config_sanitized:
-            self._dp_config_sanitized[dp_key] = {"type_value": "bool"}
+        if dp_key not in self._validated_dp_config:
+            self._validated_dp_config[dp_key] = {"type_value": "bool"}
