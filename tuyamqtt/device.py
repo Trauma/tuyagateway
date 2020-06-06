@@ -187,11 +187,12 @@ class Device:
 
     def _get_mqtt_dp_response(self, dp_key: int, output_topic: str):
         """Get the sanitized MQTT reply message payload for data point."""
-        return convert(
-            self._validated_dp_config[dp_key]["type_value"],
-            self._topic_type_mapping[output_topic],
-            self._sanitized_output_data[dp_key],
-        )
+        return self._sanitized_output_data[dp_key]
+        # return convert(
+        #     self._validated_dp_config[dp_key]["type_value"],
+        #     self._topic_type_mapping[output_topic],
+        #     self._sanitized_output_data[dp_key],
+        # )
 
     def set_tuya_payload(self, data: dict, dp_key: int = None, via: str = "tuya"):
         """Set the Tuya reply message payload."""

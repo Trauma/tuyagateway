@@ -7,6 +7,7 @@ import threading
 from .configure import logger
 from .device import Device
 from tuyamqtt import database
+from tuyamqtt.transform import homeassistant
 from tuyaface.tuyaclient import TuyaClient
 
 
@@ -207,6 +208,7 @@ class TuyaMQTTEntity(threading.Thread):
     def _handle_status(self):
 
         sane_reply = self.entity.get_mqtt_response(output_topic="attributes")
+
         if True not in sane_reply["changed"].values():
             return
         self._mqtt_publish(self.mqtt_topic, "attributes", json.dumps(sane_reply))
@@ -236,6 +238,10 @@ class TuyaMQTTEntity(threading.Thread):
             via = "mqtt"
         self.entity.set_tuya_payload(data, via=via)
         self._handle_status()
+
+        conf = self.parent.get_ha_config(self.key)
+        transformer_conf = self.parent.get_ha_transformer(conf["device_component"])
+        homeassistant.handle_status(conf, transformer_conf, self.entity)
         # self._process_data(data_sane, via)
 
     def request_status(self, via: str = "tuya", force_mqtt: bool = False):
@@ -314,6 +320,7 @@ class TuyaMQTT:
     dict_entities = {}
     worker_threads = {}
     _ha_config = {}
+    _ha_transformer = {}
 
     def __init__(self, config):
         """Initialize TuyaMQTTEntity."""
@@ -349,7 +356,7 @@ class TuyaMQTT:
             connack_string(return_code),
             self.mqtt_topic,
         )
-        client.subscribe((f"{self.mqtt_topic}/#", 0))
+        client.subscribe([(f"{self.mqtt_topic}/#", 0), ("homeassistant/#", 0)])
 
     def write_entities(self):
         """Write entities to database."""
@@ -486,22 +493,47 @@ class TuyaMQTT:
         )
         self._start_entity_thread(device.key, device)
 
-    def _handle_ha_config(self, message):
-        print(message.topic, message.payload)
-        topic_parts = message.topic.split("/")
+    def get_ha_config(self, key: str):
+        """Get the HomeAssistant configuration."""
+        if key not in self._ha_config:
+            return None
+        return self._ha_config[key]
+
+    def _handle_ha_config(self, topic: dict, message):
+        # print(message.topic, message.payload)
+
         try:
             ha_dict = json.loads(message.payload)
         except Exception as ex:
             print(ex)
+        # add context to ha_dict
+        ha_dict["device_component"] = topic[1]
 
-        if topic_parts[2] != ha_dict["uniq_id"]:
+        if topic[2] != ha_dict["uniq_id"]:
             return
         id_parts = ha_dict["uniq_id"].split("_")
         if id_parts[0] not in ha_dict["device"]["identifiers"]:
             return
-
-        self._ha_config[id_parts[0]] = {}
+        if id_parts[0] not in self._ha_config:
+            self._ha_config[id_parts[0]] = {}
         self._ha_config[id_parts[0]][id_parts[1]] = ha_dict
+
+    def get_ha_transformer(self, component: str):
+        """Get the HomeAssistant transformer."""
+        if component not in self._ha_transformer:
+            return None
+        return self._ha_transformer[component]
+
+    def _handle_transformer_message(self, topic: dict, message):
+
+        try:
+            payload_dict = json.loads(message.payload)
+        except Exception as ex:
+            print(ex)
+
+        if topic[2] != "homeassistant":
+            return
+        self._ha_transformer[topic[3]] = payload_dict
 
     def on_mqtt_message(self, client, userdata, message):
         """MQTT message callback, executed in the MQTT client's context."""
@@ -511,7 +543,13 @@ class TuyaMQTT:
             topic_parts[0] == "homeassistant"
             and topic_parts[len(topic_parts) - 1] == "config"
         ):
-            self._handle_ha_config(message)
+            self._handle_ha_config(topic_parts, message)
+            return
+        if topic_parts[0] != "tuya":
+            return
+
+        if topic_parts[1] == "transformer":
+            self._handle_transformer_message(topic_parts, message)
             return
 
         if topic_parts[1] == "discovery":
