@@ -36,8 +36,8 @@ def bool_availability(config: dict, boolvalue: bool):
     """Convert boolean to payload value."""
     # TODO: get from entity
     if boolvalue:
-        return config["General"]["availability_online"]
-    return config["General"]["availability_offline"]
+        return "online"  # config["General"]["availability_online"]
+    return "offline"  # config["General"]["availability_offline"]
 
 
 class TuyaMQTTEntity(threading.Thread):
@@ -239,9 +239,16 @@ class TuyaMQTTEntity(threading.Thread):
         self.entity.set_tuya_payload(data, via=via)
         self._handle_status()
 
-        conf = self.parent.get_ha_config(self.key)
-        transformer_conf = self.parent.get_ha_transformer(conf["device_component"])
-        homeassistant.handle_status(conf, transformer_conf, self.entity)
+        ha_conf = self.parent.get_ha_config(self.key)
+
+        transformer_conf = {}
+        for dp_key, data_point in self.entity.discovery["dps"].items():
+            transformer_conf[dp_key] = self.parent.get_ha_transformer(
+                data_point["device_component"]
+            )
+        homeassistant.handle_status(
+            self.entity.discovery, transformer_conf, self.entity, ha_conf
+        )
         # self._process_data(data_sane, via)
 
     def request_status(self, via: str = "tuya", force_mqtt: bool = False):
@@ -356,7 +363,9 @@ class TuyaMQTT:
             connack_string(return_code),
             self.mqtt_topic,
         )
-        client.subscribe([(f"{self.mqtt_topic}/#", 0), ("homeassistant/#", 0)])
+        client.subscribe(
+            [(f"{self.mqtt_topic}/#", 0), ("homeassistant/#", 0), ("tuyagateway/#", 0)]
+        )
 
     def write_entities(self):
         """Write entities to database."""
@@ -401,7 +410,7 @@ class TuyaMQTT:
 
         return keys
 
-    def _handle_discover_message(self, message):
+    def _handle_discover_message(self, topic: dict, message):
         """Handle discover message from GismoCaster.
 
         If a discover message arrives we kill the thread for the
@@ -414,14 +423,22 @@ class TuyaMQTT:
             message.topic,
             message.retain,
         )
-
+        # if not message.payload:
+        #     print("find and kill thread")
+        #     return
+        # print(message.payload)
+        discover_dict = {}
         try:
-            discover_dict = json.loads(message.payload)
+            if message.payload:
+                discover_dict = json.loads(message.payload)
         except Exception as ex:
-            print(ex)
+            print(message.payload, ex)
+            return
+
+        device_key = topic[2]
         device = Device(discover_dict, False)
 
-        entity_keys = self._find_entity_keys(device.key, device.ip_address)
+        entity_keys = self._find_entity_keys(device_key, device.ip_address)
 
         for entity_key in entity_keys:
             self.database.delete_entity(
@@ -502,10 +519,14 @@ class TuyaMQTT:
     def _handle_ha_config(self, topic: dict, message):
         # print(message.topic, message.payload)
 
+        if not message.payload:
+            return
+
         try:
             ha_dict = json.loads(message.payload)
         except Exception as ex:
             print(ex)
+            return
         # add context to ha_dict
         ha_dict["device_component"] = topic[1]
 
@@ -526,6 +547,12 @@ class TuyaMQTT:
 
     def _handle_transformer_message(self, topic: dict, message):
 
+        logger.info(
+            "transformer message received %s topic %s retained %s ",
+            str(message.payload.decode("utf-8")),
+            message.topic,
+            message.retain,
+        )
         try:
             payload_dict = json.loads(message.payload)
         except Exception as ex:
@@ -545,17 +572,19 @@ class TuyaMQTT:
         ):
             self._handle_ha_config(topic_parts, message)
             return
+        if topic_parts[0] == "tuyagateway":
+
+            if topic_parts[1] == "transformer":
+                self._handle_transformer_message(topic_parts, message)
+                return
+
+            if topic_parts[1] == "discovery":
+                self._handle_discover_message(topic_parts, message)
+                return
+        # will be removed eventually
+
         if topic_parts[0] != "tuya":
             return
-
-        if topic_parts[1] == "transformer":
-            self._handle_transformer_message(topic_parts, message)
-            return
-
-        if topic_parts[1] == "discovery":
-            self._handle_discover_message(message)
-            return
-        # will be removed eventually
 
         if len(topic_parts) == 7 and topic_parts[6] == "command":
             self._handle_command_message(message)
@@ -569,6 +598,7 @@ class TuyaMQTT:
             self.read_entities()
             for key, device in self.dict_entities.items():
                 self._start_entity_thread(key, device)
+
             # wait for threads to be started before
             # opening up for changes
             self.mqtt_connect()

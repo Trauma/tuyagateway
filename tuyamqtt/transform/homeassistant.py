@@ -24,12 +24,12 @@ def _legacy_handle_status(device: Device):
     if True not in sane_reply["changed"].values():
         return
     # TODO: convert values
-    print(sane_reply["dps"].values())
+    # print(sane_reply["dps"].values())
     convert_reply = sane_reply
     convert_reply["dps"] = {
         k: _legacy_bool_payload(v) for k, v in sane_reply["dps"].items()
     }
-    print(convert_reply)
+    # print(convert_reply)
     _mqtt_publish(device.mqtt_topic, "attributes", json.dumps(convert_reply))
 
     for dp_key, dp_value in convert_reply["changed"].items():
@@ -58,15 +58,40 @@ def _mqtt_publish(topic, subtopic, payload):
     print(topic, subtopic, payload)
 
 
-def handle_status(config: dict, transformer: dict, device: Device):
+def handle_status(config: dict, transformer: dict, device: Device, ha_conf: dict):
     """Convert device data to HA topics and payloads."""
     if not config:
         # print("no config for device, use legacy")
         _legacy_handle_status(device)
         return
-    print(
-        "handle_status",
-        device.get_mqtt_response(output_topic="attributes"),
-        config,
-        transformer,
-    )
+    # print(
+    #     "device",
+    #     device.get_mqtt_response(output_topic="attributes"),
+    # )
+    # print(
+    #     "device_config",
+    #     config,
+    # )
+    # print(
+    #     "transformer",
+    #     transformer,
+    # )
+    # print("ha_conf", ha_conf)
+    device_data = device.get_mqtt_response(output_topic="attributes")
+    for dp_key, dp_data in device_data["dps"].items():
+        dp_key_str = str(dp_key)
+        if dp_key_str in config["dps"]:
+            dp_ha_conf = ha_conf[dp_key_str]
+            result_topic = config["dps"][dp_key_str]["device_topic"]
+            print(dp_key, dp_data, result_topic)
+            print(
+                "topic",
+                transformer[dp_key_str]["topics"][result_topic][
+                    "default_value"
+                ].replace("~", dp_ha_conf["~"]),
+            )
+            for val in transformer[dp_key_str]["topics"][result_topic][
+                "values"
+            ].items():
+                if val["tuya_value"] == dp_data:
+                    print("payload", val["default_value"])

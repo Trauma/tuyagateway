@@ -70,6 +70,7 @@ class Device:
     _sanitized_output_data = {}
     _state_data = {}
     _state_changed = False
+    discovery = None
 
     _topic_type_mapping = {
         "availability": "str",
@@ -87,6 +88,7 @@ class Device:
         if not gismo_dict:
             # device from db
             return
+        self.discovery = gismo_dict
 
         if not self.topic_config:
             self._set_gc_config(gismo_dict)
@@ -129,12 +131,13 @@ class Device:
         if "pref_status_cmd" in gismo_dict:
             self._set_pref_status_cmd(gismo_dict["pref_status_cmd"])
 
-        for data_point in gismo_dict["dps"]:
-            dp_key = int(data_point["key"])
+        for dp_key, data_point in gismo_dict["dps"].items():
+            # dp_key = int(data_point["key"])
+            dp_key_int = int(dp_key)
 
             if _validate_dp_config(data_point):
-                self._validated_dp_config[dp_key] = data_point
-                self._init_data_point(dp_key)
+                self._validated_dp_config[dp_key_int] = data_point
+                self._init_data_point(dp_key_int)
 
         self.is_valid = True
 
