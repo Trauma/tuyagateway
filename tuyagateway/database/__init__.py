@@ -3,7 +3,7 @@ import sqlite3
 import json
 
 
-DATABASE = sqlite3.connect("tuyamqtt.db", check_same_thread=False)
+DATABASE = sqlite3.connect("tuyagateway.db", check_same_thread=False)
 CURSOR = DATABASE.cursor()
 
 

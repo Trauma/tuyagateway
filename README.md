@@ -1,12 +1,12 @@
-<p align="center"><img width="50%" alt="TuyaMQTT logo" src="https://github.com/TradeFace/tuyamqtt/blob/development/docs/tuyagateway_logo.png?raw=true"></p>
+<p align="center"><img width="50%" alt="TuyaMQTT logo" src="https://github.com/TradeFace/tuyagateway/blob/development/docs/tuyagateway_logo.png?raw=true"></p>
 
 The devices you purchase are defacto your property. You should be able to fully control all aspects of it, without a man in the middle. Be it just flicking a switch or reading data from it. The man in the middle might be benign now, but can you really trust a commercial company with your personal data? Regain control over what is rightfully yours.
 
-We've made a library that communicates locally with your Tuya devices (no internet connection needed), called [TuyaFace](https://github.com/TradeFace/tuya). The library is open-source and can be used in your own software if you choose to do so. But we did the heavylifting already for you. TuyaGateway implements the library and communitates over an open protocol (MQTT). All relevant home automation software packages (e.g. Home Assistant) are able to work with MQTT. 
+We've made a library that communicates locally with your Tuya devices (no internet connection needed), called [TuyaFace](https://github.com/TradeFace/tuyaface). The library is open-source and can be used in your own software if you choose to do so. But we did the heavylifting already for you. TuyaGateway implements the library and communitates over an open protocol (MQTT) with your home automation software. All relevant home automation software packages (e.g. Home Assistant) are able to work with MQTT. 
 
 Great! But what about GismoCaster? [GismoCaster](https://github.com/TradeFace/gismocaster) is the control-center for TuyaGateway. In a webinterface you can add your devices, set names for them, etc. So, no programming required and no dabbing around in obscure text files which will break when you add a tab to many.
 
-<p align="center"><img alt="Network" src="https://github.com/TradeFace/tuyamqtt/blob/development/docs/network_bg.png?raw=true"></p>
+<p align="center"><img alt="Network" src="https://github.com/TradeFace/tuyagateway/blob/development/docs/network_bg.png?raw=true"></p>
 
 A bit more technical
 ----------
@@ -17,17 +17,17 @@ From v1.1 onwards Tuya device configuration can be done with [GismoCaster](https
 The goal for version v1.2 is to add input/output processing functions and to improve on HA message values. Next to structural improvements to the code. 
 
 
-[Docs](https://github.com/TradeFace/tuyamqtt/wiki)
+[Docs](https://github.com/TradeFace/tuyagateway/wiki)
 ================
-https://github.com/TradeFace/tuyamqtt/wiki
+https://github.com/TradeFace/tuyagateway/wiki
 
 Get involved!
 ================
-Anyone who is willing to test, write code, add documentation, etc. is welcome to make a [contribution](https://github.com/TradeFace/tuyamqtt/blob/CONTRIBUTING.md). 
+Anyone who is willing to test, write code, add documentation, etc. is welcome to make a [contribution](https://github.com/TradeFace/tuyagateway/blob/development/CONTRIBUTING.md). 
 
 
 Acknowledgements
 =================
-- https://github.com/emontnemery development tuyaclient and implementation in tuyamqtt
+- https://github.com/emontnemery development tuyaclient and implementation in tuyagateway
 - https://github.com/jkerdreux-imt testing tuyaclient
 - https://github.com/SDNick484 testing protocol 3.1 reimplementation

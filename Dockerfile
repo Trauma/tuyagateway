@@ -1,4 +1,4 @@
 FROM python:3.6
 WORKDIR /usr/src/app
-RUN pip install tuyamqtt
-CMD ["tuyamqtt"]
+RUN pip install tuyagateway
+CMD ["tuyagateway"]

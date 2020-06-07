@@ -6,8 +6,8 @@ import queue
 import threading
 from .configure import logger
 from .device import Device
-from tuyamqtt import database
-from tuyamqtt.transform import homeassistant
+from tuyagateway import database
+from tuyagateway.transform import homeassistant
 from tuyaface.tuyaclient import TuyaClient
 
 
@@ -397,7 +397,7 @@ class TuyaMQTT:
 
     def _start_entity_thread(self, key, entity):
         thread_object = TuyaMQTTEntity(key, entity, self)
-        thread_object.setName(f"tuyamqtt_{key}")
+        thread_object.setName(f"tuyagateway_{key}")
         thread_object.start()
         self.worker_threads[key] = thread_object
 

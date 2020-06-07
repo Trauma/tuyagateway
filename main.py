@@ -1,9 +1,9 @@
 #!/usr/bin/python3
 import sys
 
-from tuyamqtt.configure import CONFIG
+from tuyagateway.configure import CONFIG
 
-from tuyamqtt import TuyaMQTT
+from tuyagateway import TuyaMQTT
 
 
 if __name__ == "__main__":

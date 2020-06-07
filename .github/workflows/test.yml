@@ -25,10 +25,10 @@ jobs:
           pip install -r requirements_test.txt
       - name: Lint with flake8
         run: |
-          flake8 tuyamqtt
+          flake8 tuyagateway
       - name: Lint with pylint
         run: |
-          pylint tuyamqtt
+          pylint tuyagateway
       - name: Check formatting with black
         run: |
-          black tuyamqtt --check
+          black tuyagateway --check
