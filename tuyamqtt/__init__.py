@@ -239,6 +239,9 @@ class TuyaMQTTEntity(threading.Thread):
         self.entity.set_tuya_payload(data, via=via)
         self._handle_status()
 
+        if not self.entity.discovery or "dps" not in self.entity.discovery:
+            return
+
         ha_conf = self.parent.get_ha_config(self.key)
 
         transformer_conf = {}
