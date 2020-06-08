@@ -161,7 +161,17 @@ class Transform:
     def __init__(self, device: Device):
         """Initialize transform."""
         self.device = device
-        self.device_config = self.device.discovery
+        self.device_config = self.device.get_config()
+
+        print(self.device_config)
+
+        if (
+            not self.device_config
+            or self.device_config["topic_config"]
+            or not self.device_config["is_valid"]
+        ):
+            print("exit transform", self.device_config)
+            return
         for dp_key, dp_value in self.device_config["dps"].items():
             self.data_points[dp_key] = TransformDataPoint(dp_value)
 

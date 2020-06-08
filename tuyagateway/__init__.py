@@ -54,7 +54,7 @@ class TuyaMQTTEntity(threading.Thread):
         self.entity = entity
         self.parent = parent
         self.config = self.parent.config
-
+        print(key)
         self.transform = homeassistant.Transform(entity)
 
         # #this might not work, we'll see
@@ -468,7 +468,7 @@ class TuyaMQTT:
                 except Exception:
                     pass
 
-        if not device.is_valid:
+        if not device.is_valid():
             return
         self.dict_entities[device.key] = device
         self._start_entity_thread(device.key, device)
