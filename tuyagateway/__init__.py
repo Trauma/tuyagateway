@@ -54,7 +54,19 @@ class TuyaMQTTEntity(threading.Thread):
         self.entity = entity
         self.parent = parent
         self.config = self.parent.config
-        # self.get_ha_config = self.parent.get_ha_config
+
+        self.transform = homeassistant.Transform(entity)
+
+        # #this might not work, we'll see
+        # self.transform.set_homeassistant_config(
+        #     self.parent.get_ha_config(self.key)
+        # )
+        # transformer_conf = {}
+        # for dp_key, data_point in self.entity.discovery["dps"].items():
+        #     transformer_conf[dp_key] = self.parent.get_ha_transformer(
+        #         data_point["device_component"]
+        #     )
+        # self.transform.set_transform_config(transformer_conf)
 
         self.mqtt_topic = entity.mqtt_topic
 
@@ -114,6 +126,7 @@ class TuyaMQTTEntity(threading.Thread):
             # payload in bytes
             self.entity.set_mqtt_request(message.payload, dp_key, "command")
             payload = self.entity.get_tuya_payload(dp_key)
+            print(message.payload, payload)
             self.set_state(dp_key, payload)
             return
 
@@ -239,19 +252,19 @@ class TuyaMQTTEntity(threading.Thread):
         self.entity.set_tuya_payload(data, via=via)
         self._handle_status()
 
-        if not self.entity.discovery or "dps" not in self.entity.discovery:
-            return
+        # if not self.entity.discovery or "dps" not in self.entity.discovery:
+        #     return
 
-        ha_conf = self.parent.get_ha_config(self.key)
+        # ha_conf = self.parent.get_ha_config(self.key)
 
-        transformer_conf = {}
-        for dp_key, data_point in self.entity.discovery["dps"].items():
-            transformer_conf[dp_key] = self.parent.get_ha_transformer(
-                data_point["device_component"]
-            )
-        homeassistant.handle_status(
-            self.entity.discovery, transformer_conf, self.entity, ha_conf
-        )
+        # transformer_conf = {}
+        # for dp_key, data_point in self.entity.discovery["dps"].items():
+        #     transformer_conf[dp_key] = self.parent.get_ha_transformer(
+        #         data_point["device_component"]
+        #     )
+        # homeassistant.handle_status(
+        #     self.entity.discovery, transformer_conf, self.entity, ha_conf
+        # )
         # self._process_data(data_sane, via)
 
     def request_status(self, via: str = "tuya", force_mqtt: bool = False):
@@ -533,6 +546,10 @@ class TuyaMQTT:
         # add context to ha_dict
         ha_dict["device_component"] = topic[1]
 
+        if "uniq_id" not in ha_dict:
+            # skip it for now
+            return
+
         if topic[2] != ha_dict["uniq_id"]:
             return
         id_parts = ha_dict["uniq_id"].split("_")
@@ -568,7 +585,7 @@ class TuyaMQTT:
     def on_mqtt_message(self, client, userdata, message):
         """MQTT message callback, executed in the MQTT client's context."""
         topic_parts = message.topic.split("/")
-        # print(topic_parts)
+        print(topic_parts)
         if (
             topic_parts[0] == "homeassistant"
             and topic_parts[len(topic_parts) - 1] == "config"

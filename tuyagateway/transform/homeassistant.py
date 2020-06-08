@@ -95,3 +95,115 @@ def handle_status(config: dict, transformer: dict, device: Device, ha_conf: dict
             ].items():
                 if val["tuya_value"] == dp_data:
                     print("payload", val["default_value"])
+
+
+class TransformDataPoint:
+    """Transform DataPoint."""
+
+    data_point = None
+    data_point_config = None
+    transform_config = None
+    homeassistant_config = None
+    _is_valid = False
+
+    def __init__(self, data_point: dict):
+        """Initialize TransformDataPoint."""
+        self.data_point = data_point
+
+    def set_homeassistant_config(self, config):
+        """Set the Home Assistant datapoint config."""
+        # TODO: check sane/valid
+        self.homeassistant_config = config
+
+    def set_transform_config(self, config):
+        """Set the Home Assistant variable model for datapoint."""
+        # TODO: check sane/valid
+        self.transform_config = config
+
+    def is_valid(self) -> bool:
+        """Check if all configurations are valid and sane."""
+        self._is_valid = False
+        # TODO: check sane/valid homeassistant_config
+        # TODO: check sane/valid transform_config
+        # TODO: check is_valid device
+        return True
+
+    def _full_topic(self, item: dict):
+
+        return item["defualt_name"].replace("~", self.homeassistant_config["~"])
+
+    def get_subscribe_topics(self) -> dict:
+        """Get the topics to subscribe to for the datapoint."""
+        topics = {}
+        for key, item in self.homeassistant_config.items():
+            if key in ["cmd_t"]:
+                topics[key] = self._full_topic(item)
+        return topics
+
+    def get_publish_topics(self) -> dict:
+        """Get the topics to publish to for the datapoint."""
+        topics = {}
+        for key, item in self.homeassistant_config.items():
+            if key in ["stat_t", "av_t"]:
+                topics[key] = self._full_topic(item)
+        return topics
+
+
+class Transform:
+    """Transform Home Assistant I/O data."""
+
+    device = None
+    device_config = None
+    transform_config = None
+    homeassistant_config = None
+    data_points = {}
+
+    def __init__(self, device: Device):
+        """Initialize transform."""
+        self.device = device
+        self.device_config = self.device.discovery
+        for dp_key, dp_value in self.device_config["dps"].items():
+            self.data_points[dp_key] = TransformDataPoint(dp_value)
+
+    # def set_homeassistant_config(self, config):
+    #     # TODO: check sane/valid
+    #     self.homeassistant_config = config
+    #     for dp_key, dp_value in self.homeassistant_config["dps"].items():
+    #         self.data_points[dp_key].set_homeassistant_config(dp_value)
+
+    # def set_transform_config(self, config):
+    #     # TODO: check sane/valid
+    #     self.transform_config = config
+    #     for dp_key, dp_value in self.transform_config["dps"].items():
+    #         self.data_points[dp_key].transform_config(dp_value)
+
+    # def is_valid(self) -> bool:
+    #     # TODO: check sane/valid homeassistant_config
+    #     # TODO: check sane/valid transform_config
+    #     # TODO: check is_valid device
+    #     return True
+
+    # def get_subscribe_topics(self) -> dict:
+    #     """Find topics to subscribe to."""
+    #     topics = {}
+    #     for dp_key, dp_value in self.homeassistant_config["dps"].items():
+    #         topics[dp_key] = self.data_points[dp_key].get_subscribe_topics()
+    #     return topics
+
+    # def get_publish_topics(self) -> dict:
+    #     """Find topics to publish."""
+    #     topics = {}
+    #     for dp_key, dp_value in self.homeassistant_config["dps"].items():
+    #         topics[dp_key] = self.data_points[dp_key].get_publish_topics()
+    #     # TODO: filter doubles?
+    #     return topics
+
+    # def transform_subscribe_payload(self, command: str, payload):
+    #     return None
+
+    # def transform_publish_payload(self, command: str, payload):
+    #     return None
+
+    # def get_publish_items(self):
+    #     """"""
+    #     return {}
