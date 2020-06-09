@@ -58,9 +58,10 @@ class DeviceDataPoint:
     _sanitized_output_data = False
     _state_data = {"via": "tuya", "changed": False}
     _validated_config = {"type_value": "bool"}
-    is_valid = False
+    _is_valid = False
     state_changed = False
 
+    # TODO: handle legacy devices
     def __init__(self, data_point: dict = None):
         """Initialize DeviceDataPoint."""
         if not data_point:
@@ -69,6 +70,10 @@ class DeviceDataPoint:
         if _validate_config(data_point):
             self._validated_config = data_point
             self._is_valid = True
+
+    def is_valid(self):
+        """Return true if the configuration validated."""
+        return self._is_valid
 
     def get_state(self, key: str):
         """Get state of datapoint."""
@@ -86,6 +91,7 @@ class DeviceDataPoint:
     def _sanitize_data_point(self, payload: bytes):
 
         input_sanitize = self._validated_config
+        # print(input_sanitize)
         if input_sanitize["type_value"] == "bool":
             return bool(payload)
         if input_sanitize["type_value"] == "str":
@@ -102,10 +108,6 @@ class DeviceDataPoint:
 
     def set_tuya_payload(self, data: dict, via: str):
         """Set the Tuya reply message payload for data point."""
-
-        # TMP
-        if self._validated_config["type_value"] == "bool":
-            data = bool_str(data)
 
         sanitized_data = self._sanitize_data_point(data)
 
@@ -124,6 +126,7 @@ class DeviceDataPoint:
         # TMP
         if self._validated_config["type_value"] == "bool":
             data = str_bool(data)
+        # print("set_mqtt_request",data)
 
         self._sanitized_input_data = self._sanitize_data_point(data)
 
@@ -131,6 +134,7 @@ class DeviceDataPoint:
 class Device:
     """Tuya I/O processing."""
 
+    # TODO: should any of this be public?
     key = None
     ip_address = None
     localkey = None
@@ -140,19 +144,18 @@ class Device:
     mqtt_topic = None
     pref_status_cmd = 10
 
-    _topic_parts = []
-    _device_config = {}
-    _data_points = {}
-
     def __init__(self, gismo_dict: dict = None, topic_config=True):
         """Initialize Device."""
+
+        self._topic_parts = []
+        self._device_config = {}
+        self._data_points = {}
         self._topic_config = topic_config
         if not gismo_dict:
             # device from db
             return
         self._device_config = gismo_dict
         self._device_config["topic_config"] = self._topic_config
-        self._device_config["is_valid"] = self._is_valid
 
         if not self._topic_config:
             self._set_gc_config(gismo_dict)
@@ -165,6 +168,11 @@ class Device:
     def is_valid(self):
         """Return true if the configuration validated."""
         return self._is_valid
+
+    def data_point(self, idx: int) -> DeviceDataPoint:
+        """Return DeviceDataPoint."""
+        if idx in self._data_points:
+            return self._data_points[idx]
 
     def _set_key(self, deviceid: str):
         """Set the deviceid for the device."""
@@ -216,6 +224,7 @@ class Device:
         if pref_status_cmd in [10, 13]:
             self.pref_status_cmd = pref_status_cmd
 
+    # TODO: remove when transform is done
     def _set_mqtt_topic(self):
         self.mqtt_topic = (
             f"tuya/{self.protocol}/{self.key}/{self.localkey}/{self.ip_address}"
@@ -223,6 +232,7 @@ class Device:
         if not self._topic_config:
             self.mqtt_topic = f"tuya/{self.key}"
 
+    # TODO: remove dp_key
     def get_tuya_payload(self, dp_key: int = None):
         """Get the sanitized Tuya command message payload."""
         if dp_key:
@@ -232,6 +242,7 @@ class Device:
             payload[dp_idx] = dp_item.get_tuya_payload()
         return payload
 
+    # TODO: remove dp_key
     def get_mqtt_response(self, dp_key: int = None, output_topic: str = "state"):
         """Get the sanitized MQTT reply message payload."""
         if output_topic != "attributes":
@@ -259,15 +270,14 @@ class Device:
     def set_tuya_payload(self, data: dict, via: str = "tuya"):
         """Set the Tuya reply message payload."""
 
-        if not isinstance(data, dict):
-            raise ValueError("dict expected.")
         if "dps" not in data:
             raise Exception("No data point values found.")
 
         for (dp_idx, dp_data) in data["dps"].items():  # pylint: disable=unused-variable
             self._init_data_point(int(dp_idx))
-            self._data_points[int(dp_idx)].set_tuya_payload(data, via)
+            self._data_points[int(dp_idx)].set_tuya_payload(dp_data, via)
 
+    # TODO: remove dp_key
     def set_mqtt_request(self, data, dp_key: int = None, input_topic: str = "command"):
         """Set the MQTT command message payload."""
         if dp_key:
@@ -298,6 +308,7 @@ class Device:
 
     def set_legacy_device(self, device: dict):
         """Support for old structure."""
+        # print(device)
         attributes = {"via": {}, "dps": {}, "changed": {}}
         self._set_protocol(device["protocol"])
         self._set_key(device["deviceid"])

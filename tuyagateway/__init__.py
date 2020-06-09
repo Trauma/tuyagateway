@@ -4,10 +4,11 @@ import paho.mqtt.client as mqtt
 import json
 import queue
 import threading
+import asyncio
 from .configure import logger
 from .device import Device
 from tuyagateway import database
-from tuyagateway.transform import homeassistant
+from tuyagateway.transform.homeassistant import Transform
 from tuyaface.tuyaclient import TuyaClient
 
 
@@ -45,7 +46,7 @@ class TuyaMQTTEntity(threading.Thread):
 
     delay = 0.1
 
-    def __init__(self, key: str, entity: Device, parent):
+    def __init__(self, key: str, entity: Device, transform: Transform, parent):
         """Initialize TuyaMQTTEntity."""
         super().__init__()
         self.key = key
@@ -54,19 +55,8 @@ class TuyaMQTTEntity(threading.Thread):
         self.entity = entity
         self.parent = parent
         self.config = self.parent.config
-        print(key)
-        self.transform = homeassistant.Transform(entity)
 
-        # #this might not work, we'll see
-        # self.transform.set_homeassistant_config(
-        #     self.parent.get_ha_config(self.key)
-        # )
-        # transformer_conf = {}
-        # for dp_key, data_point in self.entity.discovery["dps"].items():
-        #     transformer_conf[dp_key] = self.parent.get_ha_transformer(
-        #         data_point["device_component"]
-        #     )
-        # self.transform.set_transform_config(transformer_conf)
+        self.transform = transform
 
         self.mqtt_topic = entity.mqtt_topic
 
@@ -84,6 +74,7 @@ class TuyaMQTTEntity(threading.Thread):
             self.mqtt_client.username_pw_set(
                 self.config["MQTT"]["user"], self.config["MQTT"]["pass"]
             )
+        # TODO: get avail topic
         self.mqtt_client.will_set(
             f"{self.mqtt_topic}/availability",
             bool_availability(self.config, False),
@@ -118,15 +109,15 @@ class TuyaMQTTEntity(threading.Thread):
 
         # command from ha always str
         # device dp can be "any" type
-        # convert string_<def dp_type>(payload)
 
+        # TODO: transform payload for tuya
         entity_parts = message.topic.split("/")
         if entity_parts[len(entity_parts) - 2].isnumeric():
             dp_key = int(entity_parts[len(entity_parts) - 2])
             # payload in bytes
             self.entity.set_mqtt_request(message.payload, dp_key, "command")
             payload = self.entity.get_tuya_payload(dp_key)
-            print(message.payload, payload)
+
             self.set_state(dp_key, payload)
             return
 
@@ -146,18 +137,41 @@ class TuyaMQTTEntity(threading.Thread):
             connack_string(return_code),
             self.mqtt_topic,
         )
-        client.subscribe(f"{self.mqtt_topic}/#")
+
+        topics = self.transform.get_subscribe_topics()
+        # print(self.mqtt_topic, topics)
+        if len(topics) != 0:
+            client.subscribe(topics)
+        else:
+            client.subscribe(f"{self.mqtt_topic}/#")
+        # pub_topics = self.transform.get_publish_topics()
+        # print("pub_topics", self.mqtt_topic, pub_topics)
 
     def _set_availability(self, availability: bool):
 
-        if availability != self.availability:
-            self.availability = availability
-            logger.debug("->publish %s/availability", self.mqtt_topic)
-            self.mqtt_client.publish(
-                f"{self.mqtt_topic}/availability",
-                bool_availability(self.config, availability),
-                retain=True,
-            )
+        if availability == self.availability:
+            return
+
+        self.availability = availability
+        logger.debug("->publish %s/availability", self.mqtt_topic)
+
+        pub_content = self.transform.get_publish_content("availability", availability)
+        done = False
+        for item in pub_content:
+            for subitem in item:
+                # print("_set_availability",self.mqtt_topic, subitem)
+                self.mqtt_client.publish(
+                    subitem["topic"], subitem["payload"], retain=True,
+                )
+                done = True
+        if done:
+            return
+
+        self.mqtt_client.publish(
+            f"{self.mqtt_topic}/availability",
+            bool_availability(self.config, availability),
+            retain=True,
+        )
 
     def on_tuya_connected(self, connected: bool):
         """Tuya connection state updated."""
@@ -171,52 +185,6 @@ class TuyaMQTTEntity(threading.Thread):
         self.mqtt_client.publish(
             f"{topic}/{subtopic}", payload,
         )
-
-    # TODO: move all data processing functions to Device
-    def _process_data(self, data: dict, via: str, force_mqtt: bool = False):
-
-        changed = force_mqtt
-
-        for dps_key, dps_value in data["dps"].items():
-            dp_key = int(dps_key)
-            data_point_topic = f"{self.mqtt_topic}/{dp_key}"
-
-            logger.debug(
-                "(%s) _process_data %s : %s", self.entity.ip_address, dps_key, dps_value
-            )
-            # TODO: direct handling of data should be done in Device
-            # data access only through getters / setters
-            if dp_key not in self.entity.attributes["dps"]:
-                self.entity.attributes["dps"][dp_key] = None
-            if dp_key not in self.entity.attributes["via"]:
-                self.entity.attributes["via"][dp_key] = "init"
-
-            if dps_value != self.entity.attributes["dps"][dp_key] or force_mqtt:
-                changed = True
-
-                self.entity.attributes["dps"][dp_key] = dps_value
-                self.entity.attributes["via"][dp_key] = via
-                self._mqtt_publish(
-                    data_point_topic, "state", bool_payload(self.config, dps_value)
-                )
-
-                attr_item = {
-                    "dps": self.entity.attributes["dps"][dp_key],
-                    "via": self.entity.attributes["via"][dp_key],
-                    "time": time.time(),
-                }
-                self._mqtt_publish(
-                    data_point_topic, "attributes", json.dumps(attr_item)
-                )
-
-        if changed:
-            attr = {
-                "dps": self.entity.attributes["dps"],
-                "via": self.entity.attributes["via"],
-                "time": time.time(),
-            }
-
-            self._mqtt_publish(self.mqtt_topic, "attributes", json.dumps(attr))
 
     def _handle_status(self):
 
@@ -250,22 +218,13 @@ class TuyaMQTTEntity(threading.Thread):
         if status_from == "command":
             via = "mqtt"
         self.entity.set_tuya_payload(data, via=via)
-        self._handle_status()
-
-        # if not self.entity.discovery or "dps" not in self.entity.discovery:
-        #     return
-
-        # ha_conf = self.parent.get_ha_config(self.key)
-
-        # transformer_conf = {}
-        # for dp_key, data_point in self.entity.discovery["dps"].items():
-        #     transformer_conf[dp_key] = self.parent.get_ha_transformer(
-        #         data_point["device_component"]
-        #     )
-        # homeassistant.handle_status(
-        #     self.entity.discovery, transformer_conf, self.entity, ha_conf
-        # )
-        # self._process_data(data_sane, via)
+        # self._handle_status()
+        # TODO: let transform process the data
+        # TODO: use right publish endpoint based on config
+        pub_content = self.transform.get_publish_content("state")
+        for item in pub_content:
+            for subitem in item:
+                self.mqtt_client.publish(subitem["topic"], subitem["payload"])
 
     def request_status(self, via: str = "tuya", force_mqtt: bool = False):
         """Poll Tuya device for status."""
@@ -275,7 +234,7 @@ class TuyaMQTTEntity(threading.Thread):
                 return
             self.entity.set_tuya_payload(data, via=via)
             self._handle_status()
-            # self._process_data(data, via, force_mqtt)
+            # TODO: let transform process the data
         except Exception:
             logger.exception("(%s) status request error", self.entity.ip_address)
 
@@ -313,6 +272,14 @@ class TuyaMQTTEntity(threading.Thread):
 
     def run(self):
         """Tuya MQTTEntity main loop."""
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(self.transform.update_config())
+        finally:
+            loop.close()
+
         self.mqtt_connect()
         self.tuya_client = TuyaClient(
             self.entity.get_legacy_device(), self.on_tuya_status, self.on_tuya_connected
@@ -320,6 +287,7 @@ class TuyaMQTTEntity(threading.Thread):
         self.tuya_client.start()
 
         while not self.stop.is_set():
+
             while not self.command_queue.empty():
                 command, args = self.command_queue.get()
                 command(*args)
@@ -341,9 +309,10 @@ class TuyaMQTT:
     delay = 0.1
     config = []
     dict_entities = {}
+    _transform = {}
     worker_threads = {}
     _ha_config = {}
-    _ha_transformer = {}
+    _ha_component = {}
 
     def __init__(self, config):
         """Initialize TuyaMQTTEntity."""
@@ -396,7 +365,10 @@ class TuyaMQTT:
         for (key, legacy_device) in self.database.get_entities().items():
             device = Device()
             device.set_legacy_device(legacy_device)
+            transform = Transform(self, device)
+            self._transform[key] = transform
             self.dict_entities[key] = device
+            self._start_entity_thread(key, device, transform)
 
     def add_entity_dict_topic(self, device):
         """Write something useful."""
@@ -408,8 +380,8 @@ class TuyaMQTT:
         self.database.insert_entity(device.get_legacy_device())
         return device.key
 
-    def _start_entity_thread(self, key, entity):
-        thread_object = TuyaMQTTEntity(key, entity, self)
+    def _start_entity_thread(self, key, entity, transform):
+        thread_object = TuyaMQTTEntity(key, entity, transform, self)
         thread_object.setName(f"tuyagateway_{key}")
         thread_object.start()
         self.worker_threads[key] = thread_object
@@ -439,20 +411,19 @@ class TuyaMQTT:
             message.topic,
             message.retain,
         )
-        # if not message.payload:
-        #     print("find and kill thread")
-        #     return
-        # print(message.payload)
+
         discover_dict = {}
         try:
             if message.payload:
                 discover_dict = json.loads(message.payload)
         except Exception as ex:
-            print(message.payload, ex)
+            print("_handle_discover_message", ex)
             return
 
         device_key = topic[2]
         device = Device(discover_dict, False)
+        # TODO: check ha_publish
+        transform = Transform(self, device)
 
         entity_keys = self._find_entity_keys(device_key, device.ip_address)
 
@@ -471,7 +442,8 @@ class TuyaMQTT:
         if not device.is_valid():
             return
         self.dict_entities[device.key] = device
-        self._start_entity_thread(device.key, device)
+        self._transform[device.key] = transform
+        self._start_entity_thread(device.key, device, transform)
 
     def _handle_command_message(self, message):
 
@@ -496,7 +468,9 @@ class TuyaMQTT:
             message.topic,
             message.retain,
         )
-        self._start_entity_thread(device.key, device)
+        transform = Transform(self, device)
+        self._transform[device.key] = transform
+        self._start_entity_thread(device.key, device, transform)
 
     # TODO: test this, do we still need the db
     def _handle_command_message2(self, message):
@@ -524,17 +498,18 @@ class TuyaMQTT:
             message.topic,
             message.retain,
         )
-        self._start_entity_thread(device.key, device)
+        transform = Transform(self, device)
+        self._transform[device.key] = transform
+        self._start_entity_thread(device.key, device, transform)
 
-    def get_ha_config(self, key: str):
+    async def get_ha_config(self, key: str, idx: int):
         """Get the HomeAssistant configuration."""
-        if key not in self._ha_config:
-            return None
-        return self._ha_config[key]
+        # wait till conf available
+        while key not in self._ha_config or idx not in self._ha_config[key]:
+            asyncio.sleep(0.1)
+        return self._ha_config[key][idx]
 
-    def _handle_ha_config(self, topic: dict, message):
-        # print(message.topic, message.payload)
-
+    def _handle_ha_config_message(self, topic: dict, message):
         if not message.payload:
             return
 
@@ -557,45 +532,51 @@ class TuyaMQTT:
             return
         if id_parts[0] not in self._ha_config:
             self._ha_config[id_parts[0]] = {}
-        self._ha_config[id_parts[0]][id_parts[1]] = ha_dict
+        if not id_parts[1].isnumeric():
+            return
+        id_int = int(id_parts[1])
+        self._ha_config[id_parts[0]][id_int] = ha_dict
 
-    def get_ha_transformer(self, component: str):
-        """Get the HomeAssistant transformer."""
-        if component not in self._ha_transformer:
-            return None
-        return self._ha_transformer[component]
+        if id_parts[0] in self._transform:
+            self._transform[id_parts[0]].set_homeassistant_config(id_int, ha_dict)
 
-    def _handle_transformer_message(self, topic: dict, message):
+    async def get_ha_component(self, key: str):
+        """Get the HomeAssistant component configuration."""
+        # wait till conf available
+        while key not in self._ha_component:
+            asyncio.sleep(0.1)
+        return self._ha_component[key]
+
+    def _handle_ha_component_message(self, topic: dict, message):
 
         logger.info(
-            "transformer message received %s topic %s retained %s ",
-            str(message.payload.decode("utf-8")),
-            message.topic,
-            message.retain,
+            "config message topic %s retained %s ", message.topic, message.retain,
         )
         try:
             payload_dict = json.loads(message.payload)
         except Exception as ex:
             print(ex)
 
-        if topic[2] != "homeassistant":
-            return
-        self._ha_transformer[topic[3]] = payload_dict
+        component_name = topic[3]
+        self._ha_component[component_name] = payload_dict
+
+        for _, transform in self._transform.items():
+            transform.set_component_config(payload_dict, component_name)
 
     def on_mqtt_message(self, client, userdata, message):
         """MQTT message callback, executed in the MQTT client's context."""
         topic_parts = message.topic.split("/")
-        print(topic_parts)
+        # print(topic_parts)
         if (
             topic_parts[0] == "homeassistant"
             and topic_parts[len(topic_parts) - 1] == "config"
         ):
-            self._handle_ha_config(topic_parts, message)
+            self._handle_ha_config_message(topic_parts, message)
             return
         if topic_parts[0] == "tuyagateway":
 
-            if topic_parts[1] == "transformer":
-                self._handle_transformer_message(topic_parts, message)
+            if topic_parts[1] == "config" and topic_parts[2] == "homeassistant":
+                self._handle_ha_component_message(topic_parts, message)
                 return
 
             if topic_parts[1] == "discovery":
@@ -616,8 +597,6 @@ class TuyaMQTT:
         try:
 
             self.read_entities()
-            for key, device in self.dict_entities.items():
-                self._start_entity_thread(key, device)
 
             # wait for threads to be started before
             # opening up for changes
@@ -631,6 +610,6 @@ class TuyaMQTT:
 
                 time.sleep(self.delay)
         except KeyboardInterrupt:
-            for key, thread in self.worker_threads.items():
+            for _, thread in self.worker_threads.items():
                 thread.stop_entity()
                 thread.join()
