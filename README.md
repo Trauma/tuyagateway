@@ -14,7 +14,7 @@ TuyaGateway listens on MQTT topics and routes requests to your Tuya devices. In 
 
 From v1.1 onwards Tuya device configuration can be done with [GismoCaster](https://github.com/TradeFace/gismocaster). In which you can set discovery messages for both TuyaGateway and Home Assistant and opens up the ability to set boolean/integer/float/string types. 
 
-The goal for version v1.2 is to add input/output processing functions and to improve on HA message values. Next to structural improvements to the code. 
+The goal for version v2.0 is to add input/output processing functions and to improve on HA message values. Next to structural improvements to the code. The topic configuration option will be removed.
 
 
 [Docs](https://github.com/TradeFace/tuyagateway/wiki)

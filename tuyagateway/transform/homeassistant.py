@@ -99,6 +99,7 @@ class TransformDataPoint:
         self.homeassistant_config = await self._main.get_ha_config(
             self._device_key, self._dp_key
         )
+        print(self._device_key, self._dp_key)
         self.component_config = await self._main.get_ha_component(
             self.data_point["device_component"]
         )
@@ -273,4 +274,4 @@ class Transform:
             if data is None:
                 # TODO: check change else continue
                 dp_data = self._device.data_point(idx).get_mqtt_response()
-            yield data_point.get_publish_content(output_topic, dp_data)
+            yield from data_point.get_publish_content(output_topic, dp_data)

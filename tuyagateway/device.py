@@ -26,31 +26,6 @@ def str_bool(payload: str) -> bool:
     return False
 
 
-# TODO: should be mapped to expected topic output
-# could use ha config if we understand the context
-# would make the app a 1 trick pony
-def bool_str(payload: bool) -> str:
-    """Convert boolean to string."""
-    if payload:
-        return "True"
-    return "False"
-
-
-def convert(input_type: str, output_type: str, data):
-    """Select the converter function."""
-    if input_type == "str":
-        if output_type == "bool":
-            return str_bool(data)
-    if input_type == "bool":
-        if output_type == "str":
-            return bool_str(data)
-    if output_type == "int":
-        return int(data)
-    if output_type == "float":
-        return float(data)
-    return data
-
-
 class DeviceDataPoint:
     """Tuya I/O datapoint processing."""
 
@@ -154,6 +129,7 @@ class Device:
         if not gismo_dict:
             # device from db
             return
+        print(gismo_dict)
         self._device_config = gismo_dict
         self._device_config["topic_config"] = self._topic_config
 
@@ -242,31 +218,6 @@ class Device:
             payload[dp_idx] = dp_item.get_tuya_payload()
         return payload
 
-    # TODO: remove dp_key
-    def get_mqtt_response(self, dp_key: int = None, output_topic: str = "state"):
-        """Get the sanitized MQTT reply message payload."""
-        if output_topic != "attributes":
-            if dp_key:
-                return self._data_points[dp_key].get_mqtt_response(output_topic)
-            return
-
-        if dp_key:
-            return {
-                "dps": self._data_points[dp_key].get_mqtt_response(output_topic),
-                "via": self._data_points[dp_key].get_state("via"),
-            }
-
-        attributes_dict = {"via": {}, "dps": {}, "changed": {}}
-        for (
-            dp_idx,
-            item,  # pylint: disable=unused-variable
-        ) in self._data_points.items():
-            attributes_dict["dps"][dp_idx] = item.get_mqtt_response(output_topic)
-            attributes_dict["via"][dp_idx] = item.get_state("via")
-            attributes_dict["changed"][dp_idx] = item.get_state("changed")
-
-        return attributes_dict
-
     def set_tuya_payload(self, data: dict, via: str = "tuya"):
         """Set the Tuya reply message payload."""
 
@@ -292,36 +243,26 @@ class Device:
         for (dp_idx, dp_data) in data["dps"].items():  # pylint: disable=unused-variable
             self._data_points[dp_idx].set_mqtt_request(data, input_topic)
 
-    def get_legacy_device(self) -> dict:
+    def get_tuyaface_device(self) -> dict:
         """Support for old structure."""
-        attributes = self.get_mqtt_response(output_topic="attributes")
+        attributes_dict = {"via": {}, "dps": {}, "changed": {}}
+        for (
+            dp_idx,
+            item,  # pylint: disable=unused-variable
+        ) in self._data_points.items():
+            attributes_dict["dps"][dp_idx] = item.get_mqtt_response()
+            attributes_dict["via"][dp_idx] = item.get_state("via")
+            attributes_dict["changed"][dp_idx] = item.get_state("changed")
 
         return {
             "protocol": self.protocol,
             "deviceid": self.key,
             "localkey": self.localkey,
             "ip": self.ip_address,
-            "attributes": attributes,
+            "attributes": attributes_dict,
             "topic_config": self._topic_config,
             "pref_status_cmd": self.pref_status_cmd,
         }
 
-    def set_legacy_device(self, device: dict):
-        """Support for old structure."""
-        # print(device)
-        attributes = {"via": {}, "dps": {}, "changed": {}}
-        self._set_protocol(device["protocol"])
-        self._set_key(device["deviceid"])
-        self._set_localkey(device["localkey"])
-        self._set_ip_address(device["ip"])
-        if "attributes" in device:
-            attributes = device["attributes"]
-        self._is_valid = True
-        self._set_mqtt_topic()
-
-        for dp_key in attributes["dps"]:
-            self._init_data_point(int(dp_key))
-
     def _init_data_point(self, dp_key: int, data_point: dict = None):
-
         self._data_points[dp_key] = DeviceDataPoint(data_point)
