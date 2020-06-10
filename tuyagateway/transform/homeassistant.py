@@ -1,4 +1,5 @@
 """Transformer for Home assistant."""
+import json
 
 
 def _subscribe_topic(item: dict) -> tuple:
@@ -7,8 +8,10 @@ def _subscribe_topic(item: dict) -> tuple:
 
 def _get_topic_value(output_topic, data):
     value = list(
-        filter(lambda item: item["tuya_value"] == data, output_topic["values"],)
+        filter(lambda item: item["tuya_value"] == data, output_topic["values"])
     )
+    if len(value) == 0:
+        return None
     return value[0]["default_value"]
 
 
@@ -33,7 +36,6 @@ class TransformDataPoint:
         self.homeassistant_config = await self._main.get_ha_config(
             self._device_key, self._dp_key
         )
-        print(self._device_key, self._dp_key)
         self.component_config = await self._main.get_ha_component(
             self.data_point["device_component"]
         )
@@ -74,6 +76,10 @@ class TransformDataPoint:
     def set_output_data(self, data):
         """Set device return value."""
         self._state_data = data
+
+    def set_attribute_data(self, data):
+        """Set device attribute value."""
+        self._attribute_data = data
 
     def get_gateway_payload(self):
         """Get payload in gateway format."""
@@ -153,19 +159,21 @@ class TransformDataPoint:
 
     def get_publish_content(self):
         """Get the topic and ha payload."""
-        # TODO: handle topics like json attributes
-
         output_topic_list = self._get_topics_by_type("publish")
         for output_topic in output_topic_list:
-            if self.data_point["device_topic"] != output_topic["name"]:
-                continue
+
             if output_topic["abbreviation"] not in self.homeassistant_config:
                 continue
+            if self.data_point["device_topic"] == output_topic["name"]:
 
-            topic = self._full_topic(output_topic["default_value"])["full"]
-            payload = _get_topic_value(output_topic, self._state_data)
-            self._command_value = payload
-            yield {"topic": topic, "payload": payload}
+                topic = self._full_topic(output_topic["default_value"])["full"]
+                payload = _get_topic_value(output_topic, self._state_data)
+                self._command_value = payload
+                yield {"topic": topic, "payload": payload}
+            elif output_topic["name"] == "json_attributes_topic":
+                topic = self._full_topic(output_topic["default_value"])["full"]
+                payload = json.dumps(self._attribute_data)
+                yield {"topic": topic, "payload": payload}
 
 
 class Transform:
@@ -180,6 +188,8 @@ class Transform:
         self._is_valid = False
         self._component_config = None
         self._homeassistant_config = None
+        self._raw_gateway_payload = None
+        self._raw_device_state = None
 
         for dp_value in self._device_config["dps"]:
             self._data_points[dp_value["key"]] = TransformDataPoint(
@@ -259,9 +269,17 @@ class Transform:
 
     def set_gateway_payload(self, gw_payload: dict):
         """Set the data gateway format."""
+        self._raw_gateway_payload = gw_payload
         for idx, gw_dp_payload in gw_payload.items():
             if idx in self._data_points:
                 self._data_points[idx].set_output_data(gw_dp_payload)
+
+    def set_device_state(self, device_state: dict):
+        """Set the device state."""
+        self._raw_device_state = device_state
+        for idx, dp_device_state in device_state.items():
+            if idx in self._data_points:
+                self._data_points[idx].set_attribute_data(dp_device_state)
 
     def get_output_payload(self) -> dict:
         """Get publish content for all datapoints."""

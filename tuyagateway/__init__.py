@@ -216,7 +216,11 @@ class TuyaMQTT:
         """Send / receive from tuya devices."""
         try:
             self.mqtt_connect()
-
+            # TODO: wait for config to arrive and start threads that have full config
+            # ha conf
+            # gc conf
+            # ha component conf
+            # TODO: when solved, remove main param transform
             while True:
                 time.sleep(self.delay)
 

@@ -98,6 +98,7 @@ class DeviceThread(threading.Thread):
 
         self._transform.set_input_payload(topic_parts, payload)
         gw_payload = self._transform.get_gateway_payload()
+        # print(gw_payload)
 
         self._device.set_gateway_payload(gw_payload)
         device_payload = self._device.get_device_payload()
@@ -133,7 +134,7 @@ class DeviceThread(threading.Thread):
         """Tuya connection state updated."""
         self._set_availability(connected)
         # We're in TuyaClient's context, queue a call to tuyaclient.status
-        self.command_queue.put((self.request_status, ("mqtt", True)))
+        self.command_queue.put((self.request_status, ("mqtt",)))
 
     def on_tuya_status(self, data: dict, status_from: str):
         """Tuya status message callback."""
@@ -141,22 +142,23 @@ class DeviceThread(threading.Thread):
         if status_from == "command":
             via = "mqtt"
         self._device.set_device_payload(data, via=via)
-        # device_state = self._device.get_device_state()
-        # TODO: handle device state
+        device_state = self._device.get_device_state()
+        self._transform.set_device_state(device_state)
 
         self._transform.set_gateway_payload(self._device.get_gateway_payload())
         for item in self._transform.get_output_payload():
+            # print(item["topic"], item["payload"])
             self._mqtt_client.publish(item["topic"], item["payload"])
 
-    def request_status(self, via: str = "tuya", force_mqtt: bool = False):
+    def request_status(self, via: str = "tuya"):
         """Poll Tuya device for status."""
         try:
             data = self._tuya_client.status()
             if not data:
                 return
             self._device.set_device_payload(data, via=via)
-            # device_state = self._device.get_device_state()
-            # TODO: handle device state
+            device_state = self._device.get_device_state()
+            self._transform.set_device_state(device_state)
 
             self._transform.set_gateway_payload(self._device.get_gateway_payload())
             for item in self._transform.get_output_payload():

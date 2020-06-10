@@ -1,4 +1,4 @@
-"""Device data and validation (WIP)."""
+"""Device data and validation."""
 
 
 def _validate_config(data_point: dict) -> bool:
@@ -191,7 +191,9 @@ class Device:
 
         for (dp_idx, dp_data) in data["dps"].items():
             self._init_data_point(int(dp_idx))
-            self._data_points[int(dp_idx)].set_device_payload(dp_data, via)
+            self._data_points[int(dp_idx)].set_device_payload(
+                data["dps"][str(dp_idx)], via
+            )
 
     def set_gateway_payload(self, gw_payload: dict):
         """Set the command message payload."""
@@ -200,7 +202,7 @@ class Device:
 
     def get_gateway_payload(self) -> dict:
         """Get the payload of the device in gw format."""
-        gw_payload = {"via": {}, "dps": {}, "changed": {}}
+        gw_payload = {}
         for (dp_idx, item,) in self._data_points.items():
             gw_payload[dp_idx] = item.get_gateway_payload()
         return gw_payload
@@ -230,4 +232,6 @@ class Device:
         }
 
     def _init_data_point(self, dp_key: int, data_point: dict = None):
+        if dp_key in self._data_points:
+            return
         self._data_points[dp_key] = DeviceDataPoint(data_point)
