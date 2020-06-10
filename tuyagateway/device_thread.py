@@ -185,9 +185,12 @@ class DeviceThread(threading.Thread):
 
     def set_status(self, device_payload: dict):
         """Set status of Tuya device."""
-        # TODO: call tuyaface set_status once implemented
-        for dp_key, dp_payload in device_payload.items():
-            self.set_state(dp_key, dp_payload)
+        try:
+            result = self._tuya_client.set_status(device_payload)
+            if not result:
+                self._log_request_error("set_status")
+        except Exception:
+            self._log_request_error("set_status")
 
     def run(self):
         """Tuya MQTTEntity main loop."""

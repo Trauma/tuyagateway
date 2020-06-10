@@ -22,6 +22,16 @@ def connack_string(state):
     return states[state]
 
 
+def on_mqtt_connect(self, client, userdata, flags, return_code):
+    """Write something useful."""
+    logger.info(
+        "MQTT Connection state: %s for topic %s",
+        connack_string(return_code),
+        "tuyagateway/#",
+    )
+    client.subscribe([("homeassistant/#", 0), ("tuyagateway/#", 0)])
+
+
 # TODO: why is this a class? declass
 class TuyaMQTT:
     """Manages a set of TuyaMQTTEntities."""
@@ -37,8 +47,6 @@ class TuyaMQTT:
     def __init__(self, config):
         """Initialize DeviceThread."""
         self.config = config
-
-        self.mqtt_topic = "tuya"
         self.mqtt_client = mqtt.Client()
 
     def mqtt_connect(self):
@@ -53,20 +61,9 @@ class TuyaMQTT:
             int(self.config["MQTT"].get("port", 1883)),
             60,
         )
-        self.mqtt_client.on_connect = self.on_mqtt_connect
+        self.mqtt_client.on_connect = on_mqtt_connect
         self.mqtt_client.on_message = self.on_mqtt_message
         self.mqtt_client.loop_start()
-
-    def on_mqtt_connect(self, client, userdata, flags, return_code):
-        """Write something useful."""
-        logger.info(
-            "MQTT Connection state: %s for topic %s",
-            connack_string(return_code),
-            self.mqtt_topic,
-        )
-        client.subscribe(
-            [(f"{self.mqtt_topic}/#", 0), ("homeassistant/#", 0), ("tuyagateway/#", 0)]
-        )
 
     def _start_device_thread(self, key, device, transform):
         thread_object = DeviceThread(key, device, transform, self)
