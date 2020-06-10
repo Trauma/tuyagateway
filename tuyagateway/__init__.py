@@ -28,7 +28,7 @@ class TuyaMQTT:
 
     delay = 0.1
     config = []
-    dict_entities = {}
+    _devices = {}
     _transform = {}
     worker_threads = {}
     _ha_config = {}
@@ -68,20 +68,20 @@ class TuyaMQTT:
             [(f"{self.mqtt_topic}/#", 0), ("homeassistant/#", 0), ("tuyagateway/#", 0)]
         )
 
-    def _start_entity_thread(self, key, device, transform):
+    def _start_device_thread(self, key, device, transform):
         thread_object = DeviceThread(key, device, transform, self)
         thread_object.setName(f"tuyagateway_{key}")
         thread_object.start()
         self.worker_threads[key] = thread_object
 
-    def _find_entity_keys(self, key: str, ip_address=None):
+    def _find_device_keys(self, key: str, ip_address=None):
         # TODO: use filter
         keys = []
-        for ent_key, item in self.dict_entities.items():
-            if item.ip_address == ip_address:
+        for ent_key, item in self._devices.items():
+            if item.get_ip_address() == ip_address:
                 keys.append(ent_key)
 
-        if key in self.dict_entities:
+        if key in self._devices:
             keys.append(key)
 
         return keys
@@ -109,25 +109,27 @@ class TuyaMQTT:
             return
 
         device_key = topic[2]
-        device = Device(discover_dict, False)
+        device = Device(discover_dict)
         # TODO: check ha_publish
-        transform = Transform(self, device)
+        if not device.is_valid():
+            return
+        transform = Transform(self, discover_dict)
 
-        entity_keys = self._find_entity_keys(device_key, device.ip_address)
+        device_keys = self._find_device_keys(device_key, device.get_ip_address())
 
-        for entity_key in entity_keys:
-            if entity_key in self.worker_threads:
+        for device_key in device_keys:
+            if device_key in self.worker_threads:
                 try:
-                    self.worker_threads[entity_key].stop_entity()
-                    self.worker_threads[entity_key].join()
+                    self.worker_threads[device_key].stop_entity()
+                    self.worker_threads[device_key].join()
                 except Exception:
                     pass
 
         if not device.is_valid():
             return
-        self.dict_entities[device.key] = device
-        self._transform[device.key] = transform
-        self._start_entity_thread(device.key, device, transform)
+        self._devices[device.get_key()] = device
+        self._transform[device.get_key()] = transform
+        self._start_device_thread(device.get_key(), device, transform)
 
     async def get_ha_config(self, key: str, idx: int) -> dict:
         """Get the HomeAssistant configuration."""

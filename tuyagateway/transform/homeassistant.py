@@ -1,6 +1,4 @@
 """Transformer for Home assistant."""
-# import asyncio
-from ..device import Device
 
 
 def _subscribe_topic(item: dict) -> tuple:
@@ -24,6 +22,8 @@ class TransformDataPoint:
         self._device_key = device_key
         self._dp_key = data_point["key"]
         self._command_value = None
+        self._state_data = None
+        self._attribute_data = {}
         self.data_point = data_point
         self.component_config = None
         self.homeassistant_config = None
@@ -71,6 +71,10 @@ class TransformDataPoint:
         """Set value for command."""
         self._command_value = data.decode("utf-8")
 
+    def set_output_data(self, data):
+        """Set device return value."""
+        self._state_data = data
+
     def get_gateway_payload(self):
         """Get payload in gateway format."""
         command_topic_list = list(
@@ -109,7 +113,7 @@ class TransformDataPoint:
         return list(
             filter(
                 lambda item: item["topic_type"] == topic_type,
-                self.component_config["topics"].items(),
+                self.component_config["topics"],
             )
         )
 
@@ -125,65 +129,61 @@ class TransformDataPoint:
 
     def get_subscribe_topics(self) -> dict:
         """Get the topics to subscribe to for the datapoint."""
-        # TODO: get list of possible subscribe topics
-        # TODO: check which topics are in ha_config and yield
-        for key, item in self.homeassistant_config.items():
-            if key in ["cmd_t"]:
-                yield _subscribe_topic(self._full_topic(item))
+        output_topic_list = self._get_topics_by_type("subscribe")
+        for output_topic in output_topic_list:
+            if output_topic["abbreviation"] not in self.homeassistant_config:
+                continue
+            item = self.homeassistant_config[output_topic["abbreviation"]]
+            yield _subscribe_topic(self._full_topic(item))
 
-    def get_publish_topics(self, filters=None) -> dict:
-        """Get the topics to publish to for the datapoint."""
-        self._get_topics_by_type("publish")
-        # TODO: check which topics are in ha_config and yield
-        for key, item in self.homeassistant_config.items():
-            if key in ["stat_t", "avty_t"]:
-                yield self._full_topic(item)
-
-    # def _get_publish_topic(self, output_topic):
-
-    #     publish_topics = self._get_topics_by_type("publish")
-    #     print(publish_topics, self.homeassistant_config)
-    #     ha_filtered = list(filter(lambda item: item[0] in publish_topics, self.homeassistant_config.items()))
-    #     print(ha_filtered)
-
-    def get_publish_content(self, output_topic: str = "state", data=None):
-        """Get the topic and ha payload."""
-        # TODO: check if output_topic in homeassistant_config
-        # self._get_publish_topic(output_topic)
-
+    def get_publish_availability(self, data: bool):
+        """Get the availability topic and ha payload."""
         output_topic_dict = self._get_topic_by_type_and_name(
-            "publish", f"{output_topic}_topic"
+            "publish", "availability_topic"
         )
+        if not output_topic_dict:
+            return
+        if output_topic_dict["abbreviation"] not in self.homeassistant_config:
+            return
 
-        topic = self._full_topic(output_topic_dict["default_value"])["full"]
-        payload = _get_topic_value(output_topic_dict, data)
-        yield {"topic": topic, "payload": payload}
+        yield {
+            "topic": self._full_topic(output_topic_dict["default_value"])["full"],
+            "payload": _get_topic_value(output_topic_dict, data),
+        }
+
+    def get_publish_content(self):
+        """Get the topic and ha payload."""
+        # TODO: handle topics like json attributes
+
+        output_topic_list = self._get_topics_by_type("publish")
+        for output_topic in output_topic_list:
+            if self.data_point["device_topic"] != output_topic["name"]:
+                continue
+            if output_topic["abbreviation"] not in self.homeassistant_config:
+                continue
+
+            topic = self._full_topic(output_topic["default_value"])["full"]
+            payload = _get_topic_value(output_topic, self._state_data)
+            self._command_value = payload
+            yield {"topic": topic, "payload": payload}
 
 
 class Transform:
     """Transform Home Assistant I/O data."""
 
-    def __init__(self, main, device: Device):
+    def __init__(self, main, device_config: dict):
         """Initialize transform."""
-        # TODO: remove device dependency, bad design
         # TODO: importing main might not be the best idea
         self._main = main
-        self._device = device
-        self._device_config = self._device.get_config()
+        self._device_config = device_config
         self._data_points = {}
         self._is_valid = False
         self._component_config = None
         self._homeassistant_config = None
 
-        if (
-            not self._device_config
-            or self._device_config["topic_config"]
-            or not self._device.is_valid()
-        ):
-            return
         for dp_value in self._device_config["dps"]:
             self._data_points[dp_value["key"]] = TransformDataPoint(
-                self._main, self._device.key, dp_value
+                self._main, self._device_config["deviceid"], dp_value
             )
         # self._is_valid = True
 
@@ -221,23 +221,15 @@ class Transform:
                 topics.append(topic)
         return topics
 
-    def get_publish_topics(self):
-        """Return publish topics for all datapoints."""
-        topics = []
+    def get_publish_availability(self, data: bool):
+        """Get availability content for all datapoints."""
         for _, data_point in self._data_points.items():
-            for topic in data_point.get_publish_topics():
-                topics.append(topic)
-        return topics
+            yield from data_point.get_publish_availability(data)
 
-    def get_publish_content(self, output_topic, data=None):
+    def get_publish_content(self):
         """Get publish content for all datapoints."""
-        for idx, data_point in self._data_points.items():
-            dp_data = data
-            if data is None:
-                # TODO: check change else continue
-                # TODO: I don't like this dependency, rewrite
-                dp_data = self._device.data_point(idx).get_mqtt_response()
-            yield from data_point.get_publish_content(output_topic, dp_data)
+        for _, data_point in self._data_points.items():
+            yield from data_point.get_publish_content()
 
     def set_input_payload(self, topic_parts: list, message):
         """Set the incomming data to the data points.
@@ -245,7 +237,7 @@ class Transform:
         message: can be str value or dict of str value
         """
 
-        # we don't really know the topic stucture
+        # we don't really know the topic structure
         # assume GC ha config was used to gen the message
 
         if isinstance(message, dict):
@@ -258,9 +250,20 @@ class Transform:
             idx = int(topic_parts[len(topic_parts) - 2])
             self._data_points[idx].set_data(message)
 
-    def get_gateway_payload(self):
+    def get_gateway_payload(self) -> dict:
         """Get the data gateway format."""
         dict_values = {}
         for idx, data_point in self._data_points.items():
             dict_values[idx] = data_point.get_gateway_payload()
         return dict_values
+
+    def set_gateway_payload(self, gw_payload: dict):
+        """Set the data gateway format."""
+        for idx, gw_dp_payload in gw_payload.items():
+            if idx in self._data_points:
+                self._data_points[idx].set_output_data(gw_dp_payload)
+
+    def get_output_payload(self) -> dict:
+        """Get publish content for all datapoints."""
+        for _, data_point in self._data_points.items():
+            yield from data_point.get_publish_content()
