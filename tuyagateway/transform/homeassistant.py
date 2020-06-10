@@ -1,71 +1,6 @@
 """Transformer for Home assistant."""
-import json
-
 # import asyncio
 from ..device import Device
-
-
-def _legacy_bool_payload(boolvalue: bool):
-    """Convert boolean to payload value."""
-    if boolvalue:
-        return "On"
-    return "Off"
-
-
-def _legacy_bool_availability(boolvalue: bool):
-    """Convert boolean to payload value."""
-    if boolvalue:
-        return "Online"
-    return "Offline"
-
-
-def _legacy_handle_status(device: Device):
-
-    sane_reply = device.get_mqtt_response(output_topic="attributes")
-
-    if True not in sane_reply["changed"].values():
-        return
-    # TODO: convert values
-    # print(sane_reply["dps"].values())
-    convert_reply = sane_reply
-    convert_reply["dps"] = {
-        k: _legacy_bool_payload(v) for k, v in sane_reply["dps"].items()
-    }
-    # print(convert_reply)
-    _mqtt_publish(device.mqtt_topic, "attributes", json.dumps(convert_reply))
-
-    for dp_key, dp_value in convert_reply["changed"].items():
-        if not dp_value:
-            continue
-
-        data_point_topic = f"{device.mqtt_topic}/{dp_key}"
-        convert_dp = sane_dp = device.get_mqtt_response(
-            dp_key, output_topic="attributes"
-        )
-        convert_dp["dps"] = _legacy_bool_payload(sane_dp["dps"])
-        _mqtt_publish(
-            data_point_topic, "attributes", json.dumps(convert_dp),
-        )
-        _mqtt_publish(
-            data_point_topic,
-            "state",
-            _legacy_bool_payload(
-                device.get_mqtt_response(dp_key, output_topic="state")
-            ),
-        )
-
-
-def _mqtt_publish(topic, subtopic, payload):
-    """Fake MQTT publish."""
-    print(topic, subtopic, payload)
-
-
-def handle_status(config: dict, transformer: dict, device: Device, ha_conf: dict):
-    """Convert device data to HA topics and payloads."""
-    if not config:
-        # print("no config for device, use legacy")
-        _legacy_handle_status(device)
-        return
 
 
 def _subscribe_topic(item: dict) -> tuple:
@@ -74,22 +9,21 @@ def _subscribe_topic(item: dict) -> tuple:
 
 def _get_topic_value(output_topic, data):
     value = list(
-        filter(
-            lambda item: item[1]["tuya_value"] == data, output_topic["values"].items(),
-        )
+        filter(lambda item: item["tuya_value"] == data, output_topic["values"],)
     )
-    return value[0][1]["default_value"]
+    return value[0]["default_value"]
 
 
 class TransformDataPoint:
     """Transform DataPoint."""
 
-    def __init__(self, main, device_key: str, dp_key: int, data_point: dict):
+    def __init__(self, main, device_key: str, data_point: dict):
         """Initialize TransformDataPoint."""
         self._main = main
         self._is_valid = False
         self._device_key = device_key
-        self._dp_key = dp_key
+        self._dp_key = data_point["key"]
+        self._command_value = None
         self.data_point = data_point
         self.component_config = None
         self.homeassistant_config = None
@@ -133,6 +67,33 @@ class TransformDataPoint:
         self._is_valid = True
         return self._is_valid
 
+    def set_data(self, data: bytes):
+        """Set value for command."""
+        self._command_value = data.decode("utf-8")
+
+    def get_gateway_payload(self):
+        """Get payload in gateway format."""
+        command_topic_list = list(
+            filter(
+                lambda item: "publish_topic" in item
+                and item["publish_topic"] == self.data_point["device_topic"],
+                self.component_config["topics"],
+            )
+        )
+        if len(command_topic_list) == 0:
+            return
+
+        gw_value_list = list(
+            filter(
+                lambda item: item["default_value"] == self._command_value,
+                command_topic_list[0]["values"],
+            )
+        )
+
+        if len(gw_value_list) == 0:
+            return
+        return gw_value_list[0]["tuya_value"]
+
     def _full_topic(self, item: dict):
 
         full = item.replace("~", self.homeassistant_config["~"])
@@ -147,7 +108,7 @@ class TransformDataPoint:
 
         return list(
             filter(
-                lambda item: item[1]["topic_type"] == topic_type,
+                lambda item: item["topic_type"] == topic_type,
                 self.component_config["topics"].items(),
             )
         )
@@ -156,12 +117,11 @@ class TransformDataPoint:
 
         filtered = list(
             filter(
-                lambda item: item[1]["topic_type"] == topic_type
-                and item[1]["name"] == name,
-                self.component_config["topics"].items(),
+                lambda item: item["topic_type"] == topic_type and item["name"] == name,
+                self.component_config["topics"],
             )
         )
-        return filtered[0][1]
+        return filtered[0]
 
     def get_subscribe_topics(self) -> dict:
         """Get the topics to subscribe to for the datapoint."""
@@ -205,6 +165,8 @@ class Transform:
 
     def __init__(self, main, device: Device):
         """Initialize transform."""
+        # TODO: remove device dependency, bad design
+        # TODO: importing main might not be the best idea
         self._main = main
         self._device = device
         self._device_config = self._device.get_config()
@@ -219,9 +181,9 @@ class Transform:
             or not self._device.is_valid()
         ):
             return
-        for dp_key, dp_value in self._device_config["dps"].items():
-            self._data_points[int(dp_key)] = TransformDataPoint(
-                self._main, self._device.key, int(dp_key), dp_value
+        for dp_value in self._device_config["dps"]:
+            self._data_points[dp_value["key"]] = TransformDataPoint(
+                self._main, self._device.key, dp_value
             )
         # self._is_valid = True
 
@@ -273,5 +235,32 @@ class Transform:
             dp_data = data
             if data is None:
                 # TODO: check change else continue
+                # TODO: I don't like this dependency, rewrite
                 dp_data = self._device.data_point(idx).get_mqtt_response()
             yield from data_point.get_publish_content(output_topic, dp_data)
+
+    def set_input_payload(self, topic_parts: list, message):
+        """Set the incomming data to the data points.
+
+        message: can be str value or dict of str value
+        """
+
+        # we don't really know the topic stucture
+        # assume GC ha config was used to gen the message
+
+        if isinstance(message, dict):
+            # TODO: use map
+            for idx, item in message:
+                self._data_points[int(idx)].set_data(item)
+            return
+
+        if isinstance(message, bytes) and topic_parts[len(topic_parts) - 2].isnumeric():
+            idx = int(topic_parts[len(topic_parts) - 2])
+            self._data_points[idx].set_data(message)
+
+    def get_gateway_payload(self):
+        """Get the data gateway format."""
+        dict_values = {}
+        for idx, data_point in self._data_points.items():
+            dict_values[idx] = data_point.get_gateway_payload()
+        return dict_values

@@ -24,14 +24,6 @@ def connack_string(state):
     return states[state]
 
 
-def bool_availability(config: dict, boolvalue: bool):
-    """Convert boolean to payload value."""
-    # TODO: get from device
-    if boolvalue:
-        return "online"  # config["General"]["availability_online"]
-    return "offline"  # config["General"]["availability_offline"]
-
-
 class DeviceThread(threading.Thread):
     """Run thread for device."""
 
@@ -65,12 +57,14 @@ class DeviceThread(threading.Thread):
             self.mqtt_client.username_pw_set(
                 self.config["MQTT"]["user"], self.config["MQTT"]["pass"]
             )
-        # TODO: get avail topic
-        self.mqtt_client.will_set(
-            f"{self.mqtt_topic}/availability",
-            bool_availability(self.config, False),
-            retain=True,
-        )
+
+        pub_content = self.transform.get_publish_content("availability", False)
+        # BUG: only last item is set, does it take a list?
+        for item in pub_content:
+            self.mqtt_client.will_set(
+                item["topic"], item["payload"], retain=True,
+            )
+
         self.mqtt_client.connect_async(
             self.config["MQTT"].get("host", "127.0.0.1"),
             int(self.config["MQTT"].get("port", 1883)),
@@ -100,23 +94,18 @@ class DeviceThread(threading.Thread):
 
         # TODO: transform payload for tuya
         entity_parts = message.topic.split("/")
-        if entity_parts[len(entity_parts) - 2].isnumeric():
-            dp_key = int(entity_parts[len(entity_parts) - 2])
-            # payload in bytes
-            self._device.set_mqtt_request(message.payload, dp_key, "command")
-            payload = self._device.get_tuya_payload(dp_key)
-
-            self.set_state(dp_key, payload)
-            return
-
         try:
-            payload_dict = json.loads(message.payload)
+            payload = json.loads(message.payload)
         except Exception:
-            logger.exception("(%s) MQTT message, invalid json", self._device.ip_address)
+            payload = message.payload
 
-        self._device.set_mqtt_request(payload_dict)
-        payload = self._device.get_tuya_payload()
-        self.set_status(payload)
+        self.transform.set_input_payload(entity_parts, payload)
+        gw_payload = self.transform.get_gateway_payload()
+
+        self._device.set_gateway_payload(gw_payload)
+        device_payload = self._device.get_device_payload()
+
+        self.set_status(device_payload)
 
     def on_mqtt_connect(self, client, userdata, flags, return_code):
         """MQTT connect callback, executed in the MQTT client's context."""
@@ -125,7 +114,7 @@ class DeviceThread(threading.Thread):
             connack_string(return_code),
             self.mqtt_topic,
         )
-
+        # listen only to command topics we can process
         topics = self.transform.get_subscribe_topics()
         client.subscribe(topics)
 
@@ -161,7 +150,7 @@ class DeviceThread(threading.Thread):
         via = "tuya"
         if status_from == "command":
             via = "mqtt"
-        self._device.set_tuya_payload(data, via=via)
+        self._device.set_device_payload(data, via=via)
         # TODO: let transform process the data
         # TODO: use right publish endpoint based on config
         pub_content = self.transform.get_publish_content("state")
@@ -174,7 +163,7 @@ class DeviceThread(threading.Thread):
             data = self.tuya_client.status()
             if not data:
                 return
-            self._device.set_tuya_payload(data, via=via)
+            self._device.set_device_payload(data, via=via)
 
             # TODO: let transform process the data
             # TODO: use right publish endpoint based on config
@@ -202,19 +191,11 @@ class DeviceThread(threading.Thread):
         except Exception:
             self._log_request_error("set_state")
 
-    def set_status(self, payload: dict):
+    def set_status(self, device_payload: dict):
         """Set status of Tuya device."""
-        logger.warning(
-            "(%s) set_status not implemented yet %s failed",
-            self._device.ip_address,
-            self.mqtt_topic,
-        )
-        # try:
-        #     result = self.tuya_client.set_status(payload)
-        #     if not result:
-        #         self._log_request_error("set_status")
-        # except Exception:
-        #     self._log_request_error("set_status")
+        # TODO: call tuyaface set_status once implemented
+        for dp_key, dp_payload in device_payload.items():
+            self.set_state(dp_key, dp_payload)
 
     def run(self):
         """Tuya MQTTEntity main loop."""
@@ -222,15 +203,13 @@ class DeviceThread(threading.Thread):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            # print(self.key, "wait for config")
             loop.run_until_complete(self.transform.update_config())
         finally:
             loop.close()
-            # print(self.key, self._device.ip_address, "config done")
 
         self.mqtt_connect()
         self.tuya_client = TuyaClient(
-            self._device.get_tuyaface_device(),
+            self._device.get_tuyaface_config(),
             self.on_tuya_status,
             self.on_tuya_connected,
         )
