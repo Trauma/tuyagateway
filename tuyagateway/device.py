@@ -198,6 +198,7 @@ class Device:
     def set_gateway_payload(self, gw_payload: dict):
         """Set the command message payload."""
         for (dp_idx, dp_gw_payload) in gw_payload.items():
+            self._init_data_point(int(dp_idx))
             self._data_points[dp_idx].set_gateway_payload(dp_gw_payload)
 
     def get_gateway_payload(self) -> dict:

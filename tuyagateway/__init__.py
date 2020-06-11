@@ -22,7 +22,7 @@ def connack_string(state):
     return states[state]
 
 
-def on_mqtt_connect(self, client, userdata, flags, return_code):
+def on_mqtt_connect(client, userdata, flags, return_code):
     """Write something useful."""
     logger.info(
         "MQTT Connection state: %s for topic %s",

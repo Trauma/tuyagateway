@@ -126,6 +126,7 @@ class DeviceThread(threading.Thread):
 
         pub_content = self._transform.get_publish_availability(availability)
         for item in pub_content:
+            # print(item["topic"], item["payload"])
             self._mqtt_client.publish(
                 item["topic"], item["payload"], retain=True,
             )
@@ -186,6 +187,7 @@ class DeviceThread(threading.Thread):
     def set_status(self, device_payload: dict):
         """Set status of Tuya device."""
         try:
+            # print(device_payload)
             result = self._tuya_client.set_status(device_payload)
             if not result:
                 self._log_request_error("set_status")

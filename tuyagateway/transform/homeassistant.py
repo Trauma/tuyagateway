@@ -152,8 +152,8 @@ class TransformDataPoint:
         if output_topic_dict["abbreviation"] not in self.homeassistant_config:
             return
 
-        yield {
-            "topic": self._full_topic(output_topic_dict["default_value"])["full"],
+        return {
+            "topic": self.homeassistant_config[output_topic_dict["abbreviation"]],
             "payload": _get_topic_value(output_topic_dict, data),
         }
 
@@ -233,13 +233,25 @@ class Transform:
 
     def get_publish_availability(self, data: bool):
         """Get availability content for all datapoints."""
+        # TODO: rewrite once GC is fixed
+        avail = {}
+        topic = None
         for _, data_point in self._data_points.items():
-            yield from data_point.get_publish_availability(data)
+            avail_dp = data_point.get_publish_availability(data)
+            avail[avail_dp["topic"]] = avail_dp
+            topic = avail_dp["topic"]
+        if topic:
+            yield avail[avail_dp["topic"]]
 
     def get_publish_content(self):
         """Get publish content for all datapoints."""
         for _, data_point in self._data_points.items():
             yield from data_point.get_publish_content()
+        # TODO: rewrite once GC is fixed
+        yield {
+            "topic": f"tuya/{self._device_config['deviceid']}/attributes",
+            "payload": self._raw_gateway_payload,
+        }
 
     def set_input_payload(self, topic_parts: list, message):
         """Set the incomming data to the data points.
