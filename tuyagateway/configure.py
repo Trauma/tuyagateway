@@ -19,7 +19,11 @@ CONFIG = DEFAULTS
 try:
     CONFIG = configparser.ConfigParser()
     CONFIG.read(
-        ["./etc/tuyamqtt.conf", "/usr/local/etc/tuyamqtt.conf", "/etc/tuyamqtt.conf"]
+        [
+            "./etc/tuyagateway.conf",
+            "/usr/local/etc/tuyagateway.conf",
+            "/etc/tuyagateway.conf",
+        ]
     )
 except Exception:
     CONFIG = DEFAULTS

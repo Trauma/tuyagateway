@@ -1,4 +1,4 @@
-You are welcome to do PR to enhance TuyaMQTT. In general PR's should be targeted at the development or a feature branch.
+You are welcome to do PR to enhance TuyaGateway. In general PR's should be targeted at the development or a feature branch.
 
 Branch structure
 ----------------
@@ -29,8 +29,8 @@ v1.2.1
 Code quality / enabling pre-commit hooks
 -----------------
 ```bash
-git clone https://github.com/<username>/tuyamqtt.git tuyamqtt_dev
-cd tuyamqtt_dev
+git clone https://github.com/Tradeface/tuyagateway.git tuyagateway_dev
+cd tuyagateway_dev
 python3 -m venv venv
 source venv/bin/activate
 pip3 install -r requirements.txt

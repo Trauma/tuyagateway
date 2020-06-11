@@ -15,9 +15,9 @@ _v1.1.0_
 - add setup.py #38
 - black, flake, mypi, pre-commit #41
 - Ctrl+C does not stop server #3
-- listen for kill signal from mqttdevices
+- listen for kill signal from gismocaster
 - device config via topic is rather crude
-  - https://github.com/TradeFace/mqttdevices has to solve this
+  - https://github.com/TradeFace/gismocaster has to solve this
   - add tuyamqtt Autodiscovery #28
 - Remove availability logic from TuyaMQTTEntity.status #26
 
@@ -25,7 +25,7 @@ _v1.0.0_
 - clean up
 - bump tuyaface to v1.2.0
 - removed hass_discovery
-- moved UI basics -> https://github.com/TradeFace/mqttdevices 
+- moved UI basics -> https://github.com/TradeFace/gismocaster 
 - bump tuyaface to v1.1.7 
   - near instant status updates on manual device handling
 - bump tuyaface to v1.1.6
@@ -37,4 +37,4 @@ _v1.0.0_
 - only publish onchange
 - added via mqtt/tuya
 - thread per device
-- pytuya replaced by https://github.com/TradeFace/tuya
+- pytuya replaced by https://github.com/TradeFace/tuyaface

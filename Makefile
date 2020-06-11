@@ -2,10 +2,10 @@ init:
 	pip3 install -r requirements.txt
 
 install:
-	sudo sed  's|{path}|'${PWD}'|' ./etc/tuyamqtt.service > /etc/systemd/system/tuyamqtt.service
-	sudo cp ./etc/tuyamqtt.conf /etc/tuyamqtt.conf
-	sudo systemctl enable tuyamqtt.service
-	sudo systemctl start tuyamqtt.service
+	sudo sed  's|{path}|'${PWD}'|' ./etc/tuyagateway.service > /etc/systemd/system/tuyagateway.service
+	sudo cp ./etc/tuyagateway.conf /etc/tuyagateway.conf
+	sudo systemctl enable tuyagateway.service
+	sudo systemctl start tuyagateway.service
 
 docker:	
-	docker build -t tuyamqtt .
+	docker build -t tuyagateway .

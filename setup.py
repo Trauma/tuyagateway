@@ -11,7 +11,7 @@ except ImportError:
 version_meta = runpy.run_path("./version.py")
 VERSION = version_meta["__version__"]
 
-PACKAGE_NAME = "tuyamqtt"
+PACKAGE_NAME = "tuyagateway"
 
 
 if len(sys.argv) <= 1:
@@ -53,7 +53,7 @@ setup(
     url=f"https://github.com/TradeFace/{PACKAGE_NAME}/",
     scripts=[f"scripts/{PACKAGE_NAME}"],
     author_email="",
-    data_files=[("etc", ["etc/tuyamqtt.conf", "etc/tuyamqtt.service"]),],
+    data_files=[("etc", ["etc/tuyagateway.conf", "etc/tuyagateway.service"]),],
     license="Unlicense",
     python_requires=">=3.6",
     classifiers=[
