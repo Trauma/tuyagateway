@@ -250,7 +250,7 @@ class Transform:
         # TODO: rewrite once GC is fixed
         yield {
             "topic": f"tuya/{self._device_config['deviceid']}/attributes",
-            "payload": self._raw_gateway_payload,
+            "payload": json.dumps(self._raw_gateway_payload),
         }
 
     def set_input_payload(self, topic_parts: list, message):

@@ -147,8 +147,9 @@ class DeviceThread(threading.Thread):
         self._transform.set_device_state(device_state)
 
         self._transform.set_gateway_payload(self._device.get_gateway_payload())
-        for item in self._transform.get_output_payload():
-            # print(item["topic"], item["payload"])
+        for item in self._transform.get_publish_content():
+            # get_output_payload():
+            print(item["topic"], item["payload"])
             self._mqtt_client.publish(item["topic"], item["payload"])
 
     def request_status(self, via: str = "tuya"):
